@@ -1,0 +1,11 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==1.4.50
+psycopg[binary]==3.1.13
+psycopg[pool]==3.1.13
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+pydantic==2.5.0
+pydantic-settings==2.1.0
+typing_extensions==4.8.0
+sqlalchemy==2.0.23
