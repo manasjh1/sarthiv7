@@ -72,11 +72,11 @@ def process_reflection(
     db: Session = Depends(get_db)
 ):
     """
-    Universal endpoint for handling all reflection stages
+    Universal endpoint for handling all reflection stages with new API structure
     
-    - **Stage 0**: Initial request (no reflection_id) - creates new reflection
-    - **Stage 1**: Category selection from database
-    - **Stage 2**: Person name input
+    - **Stage 0**: Initial request (no reflection_id) - creates new reflection and returns categories
+    - **Stage 1**: Category selection with data array containing Category_no and Category_name
+    - **Stage 2**: Person name input via message field
     - **Stage 3**: Relationship input and completion
     """
     try:
