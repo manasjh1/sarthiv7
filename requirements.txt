@@ -1,11 +1,23 @@
+# Core FastAPI and Web Framework
 fastapi==0.104.1
-uvicorn==0.24.0
-sqlalchemy==1.4.50
+uvicorn[standard]==0.24.0
+
+# Database and ORM
+sqlalchemy==2.0.23
 psycopg[binary]==3.1.13
 psycopg[pool]==3.1.13
+
+# Authentication and Security
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.6
-pydantic==2.5.0
+
+# Data Validation and Settings
+pydantic==2.4.2
 pydantic-settings==2.1.0
 typing_extensions==4.8.0
-sqlalchemy==2.0.23
+
+# Distress Detection Dependencies
+openai==0.28
+pinecone>=3.0.0
+python-dotenv
+numpy

@@ -40,11 +40,17 @@ class Stage1(BaseStage):
         """Process category selection and move to stage 2"""
         reflection_id = uuid.UUID(request.reflection_id)
         
-        # Validate category selection
+        # Validate category selection from data field (not message)
+        category_data = request.data[0] if request.data else {}
+        category_no = category_data.get("category_no")  # Changed from category_id to category_no
+        
+        if not category_no:
+            raise HTTPException(status_code=400, detail="Category selection required in data field")
+        
         try:
-            category_no = int(request.message.strip())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid category selection. Please enter a number.")
+            category_no = int(category_no)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid category_no format. Must be a number.")
         
         # Verify category exists in database
         category = self.db.query(CategoryDict).filter(
@@ -68,14 +74,16 @@ class Stage1(BaseStage):
         reflection.category_no = category_no
         reflection.stage_no = 1
         
-        # Save user message
-        message = Message(
-            text=request.message,
-            reflection_id=reflection_id,
-            sender=1,  # User sender
-            stage_no=1
-        )
-        self.db.add(message)
+        # Save user message (if any) - no distress detection needed for category selection
+        if request.message:
+            message = Message(
+                text=request.message,  # User message only
+                reflection_id=reflection_id,
+                sender=1,  # User sender
+                stage_no=1,
+                is_distress=False  # Category selection is safe
+            )
+            self.db.add(message)
         
         self.db.commit()
         
@@ -87,12 +95,13 @@ class Stage1(BaseStage):
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
-            sarthi_message=next_prompt,
+            sarthi_message=next_prompt,  # System prompt - not checked for distress
             current_stage=1,
             next_stage=2,
             progress=ProgressInfo(
                 current_step=2,
                 total_step=4,
                 workflow_completed=False
-            )
+            ),
+            data=[]  # Empty data as requested
         )
