@@ -89,6 +89,62 @@ class Stage4(BaseStage):
         if not reflection:
             raise HTTPException(status_code=404, detail="Reflection not found or access denied")
 
+        edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
+
+        #Handle edit mode from frontend
+        if edit_mode == "edit":
+            #user submitted manually edited summary - save it after distress check
+            from distress_detection import DistressDetector
+            distress = DistressDetector().check(user_message)
+
+            if distress ==1:
+                raise HTTPException(status_code=400, detail="Distress detected in custom message")
+            
+            reflection.reflection = user_message
+            reflection.stage_no = 4
+            self.db.commit()
+
+            return UniversalResponse(
+                success=True,
+                reflection_id=str(reflection_id),
+                sarthi_message="Your custom message has been saved. Redy to proceed.",
+                current_stage=4,
+                next_stage=100,
+                progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
+                data=[]
+            )
+        
+        elif edit_mode == "regenerate":
+            #fetch existing messages to regenrate summary
+            history = get_buffer_memory(self.db,reflection_id,stage_no=4)
+            system_prompt = self.get_system_prompt(reflection_id)
+
+            flag, assistant_reply = self.generate_llm_response(system_prompt, history, "regenerate summary")
+
+            if assistant_reply and assistant_reply.startswith("{"):
+                try:
+                    summary_json = json.loads(assistant_reply)
+                    if "user" in summary_json:
+                        reflection.reflection = summary_json("user")
+                        self.db.commit()
+                        
+                        return UniversalResponse(
+                            success=True,
+                            reflection_id=str(reflection_id),
+                            sarthi_message="Here’s a regenerated version of your message. You can still edit it if needed.",
+                            current_stage=4,
+                            next_stage=100,
+                            progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
+                            data=[{"summary": summary_json["user"]}]
+                        )
+                except json.JSONDecodeError:
+                    raise HTTPException(status_code=500, detail="Failed to regenerate summary")
+
+            raise HTTPException(status_code=500, detail="Regeneration failed")
+
+
+
+
         # NO DISTRESS DETECTION HERE - handled by stage_handler before this method is called
 
         history = get_buffer_memory(self.db, reflection_id, stage_no=4)
@@ -168,7 +224,7 @@ class Stage4(BaseStage):
             reflection_id=str(reflection_id),
             sarthi_message=sarthi_response,  
             current_stage=4,
-            next_stage=5 if is_done else 4,
+            next_stage=100 if is_done else 4,
             progress=ProgressInfo(
                 current_step=4,
                 total_step=5,

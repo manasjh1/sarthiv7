@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, Boolean, DateTime, BigInteger, ForeignKey, SmallInteger
+from sqlalchemy import Column, String, Integer, Text, Boolean, DateTime, BigInteger, ForeignKey, SmallInteger, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.sql import func
 from app.database import Base
@@ -17,6 +17,7 @@ class User(Base):
     phone_number = Column(BigInteger, nullable=True)
     user_type = Column(user_type_enum, default='user')
     proficiency_score = Column(Integer, default=0)
+    is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     status = Column(SmallInteger, default=1)
@@ -77,3 +78,19 @@ class DistressLog(Base):
     distress_level = Column(SmallInteger, nullable=False)  # 0=none, 1=critical, 2=warning
     detected_at = Column(DateTime(timezone=True), server_default=func.now())
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), nullable=False)
+
+
+class InviteCode(Base):
+    __tablename__ = "invite_codes"
+
+    invite_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invite_code = Column(String(64), nullable=False, unique=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), unique=True, nullable=True)
+    is_used = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('invite_code', name='uq_invite_code'),
+        UniqueConstraint('user_id', name='uq_invite_user_id'),  # Prevents multiple code use by same user
+    )

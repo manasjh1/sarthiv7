@@ -58,3 +58,19 @@ def get_current_user(
             detail="User not found or inactive"
         )
     return user
+
+def create_access_token(user_id: str, invite_id: str = None) -> str:
+    """Create JWT access token for user with optional invite_id"""
+    expire = datetime.utcnow() + timedelta(hours=settings.jwt_expiration_hours)
+    to_encode = {
+        "sub": str(user_id),
+        "exp": expire,
+        "iat": datetime.utcnow()
+    }
+    
+    # Add invite_id for new users
+    if invite_id:
+        to_encode["invite_id"] = invite_id
+    
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
