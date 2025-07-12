@@ -27,9 +27,8 @@ class Stage3(BaseStage):
         """Build transition message to introduce the next stage"""
         return (
             f"Thanks for sharing your thoughts about {name} ({relation}). "
-            f"We’ll now have a short conversation to help you shape your message. "
-            f"Take your time and be as honest as you like — I’m here to listen and help you express it clearly. "
-            f"Let’s begin whenever you’re ready. 😊"
+            f"I'm here to help you shape your message. Take your time and be honest — everything stays private between us."
+            f"Take a breath, there's no rush. When you're ready, start anywhere. 😊"
         )
     
     def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:

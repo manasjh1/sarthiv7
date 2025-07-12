@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI 
 from pinecone import Pinecone
 
 load_dotenv()
@@ -23,7 +23,7 @@ class DistressDetector:
             raise ValueError("PINECONE_INDEX environment variable is required")
 
         # OpenAI setup - OLD FORMAT (no client initialization)
-        openai.api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
         # Pinecone setup (v7+ format)
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
@@ -31,11 +31,11 @@ class DistressDetector:
 
     def get_embedding(self, text: str):
         # Use the old openai format - no client.embeddings.create
-        response = openai.Embedding.create(
+        response = self.openai_client.embedding.create(
             model=self.model_name,
             input=[text]
         )
-        return response['data'][0]['embedding']
+        return response.data[0].embedding
 
     def check(self, message: str) -> int:
         try:
@@ -60,4 +60,4 @@ class DistressDetector:
             return 0
         except Exception as e:
             print(f"Error in distress detection: {str(e)}")
-            return 0  # Default to safe if error occurs
+            return 0 

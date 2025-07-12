@@ -4,12 +4,16 @@ from app.models import Reflection, Message, CategoryDict
 from fastapi import HTTPException
 from app.memory import get_buffer_memory
 import uuid
-import openai
+from openai import OpenAI
 import json
-
+import os
 
 class Stage4(BaseStage):
     """Stage 4: Guided conversation with LLM (6-turn limit) with automatic summary generation"""
+    
+    def __init__(self, db):
+       super().__init__(db)
+       self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     def get_stage_number(self) -> int:
         return 4
@@ -42,11 +46,11 @@ class Stage4(BaseStage):
         messages.append({"role": "user", "content": user_input})
 
         try:
-            response = openai.ChatCompletion.create(
+            response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages
             )
-            raw_reply = response["choices"][0]["message"]["content"].strip()
+            raw_reply = response.choices[0].message.content.strip()
 
             # Check if the response contains the final JSON format (even within other text)
             if "{" in raw_reply and "\"user\":" in raw_reply:
