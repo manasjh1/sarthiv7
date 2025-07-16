@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Dict, Any
 
-# Existing schemas
+
 class UniversalRequest(BaseModel):
     reflection_id: Optional[str] = None
     message: str
@@ -21,7 +21,7 @@ class UniversalResponse(BaseModel):
     progress: ProgressInfo
     data: List[Dict[str, Any]] = []
 
-# Auth-related schemas
+
 class InviteValidateRequest(BaseModel):
     invite_code: str
 
@@ -29,12 +29,23 @@ class InviteValidateResponse(BaseModel):
     valid: bool
     message: str
     invite_id: Optional[str] = None
-    invite_token: Optional[str] = None  # NEW: JWT token for registration
+    invite_token: Optional[str] = None  
+
+
+class SendOTPRequest(BaseModel):
+    contact: str  
+    invite_token: Optional[str] = None  
+
+class SendOTPResponse(BaseModel):
+    success: bool
+    message: str
+    contact_type: Optional[str] = None  
+
 
 class VerifyOTPRequest(BaseModel):
-    contact: str  # Email or phone number
+    contact: str  
     otp: str
-    invite_token: Optional[str] = None  # NEW: JWT token from invite validation
+    invite_token: Optional[str] = None  
 
 class VerifyOTPResponse(BaseModel):
     success: bool
@@ -43,22 +54,11 @@ class VerifyOTPResponse(BaseModel):
     is_new_user: Optional[bool] = None
     message: str
 
-# Login schemas (already in your main.py)
-class LoginRequest(BaseModel):
-    email: str
-
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str
-    user_id: str
-    message: str
-
-# User profile response
 class UserProfileResponse(BaseModel):
     user_id: str
     name: Optional[str] = ""
     email: Optional[str] = ""  
-    phone_number: Optional[int] = None  # Allow None, don't default to 0
+    phone_number: Optional[int] = None
     is_verified: Optional[bool] = True
     user_type: Optional[str] = "user"
     proficiency_score: Optional[int] = 0

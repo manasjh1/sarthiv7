@@ -19,5 +19,15 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
-
+        
+        
+    # ZeptoMail setting 
+    zeptomail_token: str
+    zeptomail_from_domain: str = "noreply@sarthi.me"
+    zeptomail_from_name: str = "Sarthi"
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+    
 settings = Settings()

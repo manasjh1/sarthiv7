@@ -1,6 +1,6 @@
 from app.schemas import ProgressInfo, UniversalRequest, UniversalResponse
 from app.database import SessionLocal
-from app.models import Reflection 
+from app.models import Reflection, User  # Add User import
 from sqlalchemy import update, select 
 from services.email_service import send_email_message
 from services.whatsapp_service import send_whatsapp_message
@@ -28,6 +28,11 @@ class Stage100:
         if not reflection:
             raise ValueError("Reflection not found")
 
+        # Get user info for email
+        user = self.db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            raise ValueError("User not found")
+
         summary = reflection.reflection
 
         # Update stage_no and delivery_mode
@@ -37,11 +42,26 @@ class Stage100:
 
         # Send based on delivery mode
         if delivery_mode == 0:
-            send_email_message(reflection_id, summary)
+            # Send email
+            send_email_message(
+                to_email=user.email,
+                subject="Your Sarthi Reflection Summary",
+                message=summary,
+                is_html=False,
+                recipient_name=user.name or "User"
+            )
         elif delivery_mode == 1:
+            # Send WhatsApp
             send_whatsapp_message(reflection_id, summary)
         elif delivery_mode == 2:
-            send_email_message(reflection_id, summary)
+            # Send both email and WhatsApp
+            send_email_message(
+                to_email=user.email,
+                subject="Your Sarthi Reflection Summary",
+                message=summary,
+                is_html=False,
+                recipient_name=user.name or "User"
+            )
             send_whatsapp_message(reflection_id, summary)
         elif delivery_mode == 3:
             pass  # Private — do nothing

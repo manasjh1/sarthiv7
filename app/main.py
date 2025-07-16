@@ -8,6 +8,8 @@ from app.schemas import (
     UniversalResponse,
     InviteValidateRequest,
     InviteValidateResponse,
+    SendOTPRequest,        
+    SendOTPResponse,       
     VerifyOTPRequest,
     VerifyOTPResponse,
     UserProfileResponse
@@ -20,6 +22,7 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 import logging
 import uuid
+from services.email_service import email_service
 
 # Create FastAPI application
 app = FastAPI(
@@ -34,7 +37,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://v0-app-sarthi-me.vercel.app"  # Add your deployed frontend URL
+        "https://v0-app-sarthi-me.vercel.app"  
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -90,7 +93,7 @@ def find_user_by_contact(contact: str, db: Session):
 # Helper functions for invite JWT
 def create_invite_token(invite_id: str, invite_code: str) -> str:
     """Create JWT token for invite validation"""
-    expire = datetime.utcnow() + timedelta(hours=1)  # 1 hour expiry for invite tokens
+    expire = datetime.utcnow() + timedelta(hours=1)  
     to_encode = {
         "invite_id": invite_id,
         "invite_code": invite_code,
@@ -158,34 +161,149 @@ def validate_invite_code(
         invite_token=invite_jwt  # JWT for registration
     )
 
+@app.post("/api/auth/send-otp", response_model=SendOTPResponse, tags=["auth"])
+def send_otp(
+    request: SendOTPRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Send OTP to email or phone number
+    For new email users: requires valid invite_token
+    """
+    contact = request.contact.strip()
+    logging.info(f"Sending OTP to contact: {contact}")
+    
+    if "@" in contact:
+        # EMAIL OTP
+        contact = contact.lower()
+        user = find_user_by_contact(contact, db)
+        
+        if user:
+            # Existing user - send real OTP (no invite token needed)
+            result = email_service.send_otp(
+                user_id=user.user_id,
+                email=contact,
+                db=db,
+                recipient_name=user.name or "User"
+            )
+            
+            return SendOTPResponse(
+                success=result.success,
+                message=result.message,
+                contact_type="email"
+            )
+        else:
+            # NEW EMAIL USER - MUST HAVE VALID INVITE TOKEN
+            if not request.invite_token:
+                logging.warning(f"New email user {contact} attempted OTP without invite token")
+                return SendOTPResponse(
+                    success=False,
+                    message="New users must validate their invite code before requesting OTP. Please validate your invite code first.",
+                    contact_type="email"
+                )
+            
+            # Verify invite token for new user
+            try:
+                invite_data = verify_invite_token(request.invite_token)
+                invite_id = invite_data["invite_id"]
+                invite_code = invite_data["invite_code"]
+                logging.info(f"Valid invite token provided for new email user: {contact}")
+            except HTTPException as e:
+                logging.error(f"Invalid invite token for new email user: {e.detail}")
+                return SendOTPResponse(
+                    success=False,
+                    message="Invalid or expired invite token. Please validate your invite code again.",
+                    contact_type="email"
+                )
+            
+            # Check invite exists and is available
+            invite = db.query(InviteCode).filter(
+                InviteCode.invite_id == invite_id,
+                InviteCode.invite_code == invite_code
+            ).first()
+            
+            if not invite:
+                return SendOTPResponse(
+                    success=False,
+                    message="Invite code not found. Please validate your invite code again.",
+                    contact_type="email"
+                )
+            
+            if invite.is_used and invite.user_id:
+                return SendOTPResponse(
+                    success=False,
+                    message=f"Invite code '{invite_code}' has already been used by another user.",
+                    contact_type="email"
+                )
+            
+            # Valid invite - send real OTP to new email user
+            logging.info(f"Sending OTP to new email user: {contact} with valid invite: {invite_code}")
+            result = email_service.send_otp_for_new_user(
+                email=contact,
+                db=db,
+                recipient_name="User"
+            )
+            
+            return SendOTPResponse(
+                success=result.success,
+                message=f"{result.message}",
+                contact_type="email"
+            )
+    
+    else:
+        # PHONE OTP - Always use 141414 (no invite token check needed for sending)
+        user = find_user_by_contact(contact, db)
+        
+        if user:
+            # Existing phone user
+            logging.info(f"Existing phone user: {contact}")
+            return SendOTPResponse(
+                success=True,
+                message="Use OTP: 141414 for phone number verification.",
+                contact_type="phone"
+            )
+        else:
+            # New phone user - no invite check for sending, but will need it for verification
+            logging.info(f"New phone user: {contact}")
+            return SendOTPResponse(
+                success=True,
+                message="Use OTP: 141414 for phone verification. You'll need a valid invite code during verification.",
+                contact_type="phone"
+            )
+
 @app.post("/api/auth/verify-otp", response_model=VerifyOTPResponse, tags=["auth"])
 def verify_otp_and_authenticate(
     request: VerifyOTPRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Smart OTP verification:
-    - If user exists: Login directly 
-    - If user doesn't exist: Require invite token to create account
+    ✅ UPDATED: Verify OTP and authenticate user with memory to database transfer
+    - Existing users: Login directly from database
+    - New users: Verify from memory → Create user → Move OTP to database → Mark invite as used
     """
     contact = request.contact.strip()
     
     logging.info(f"OTP Verification - Contact: {contact}, OTP: {request.otp}, Invite token provided: {bool(request.invite_token)}")
     
-    # Verify OTP first
-    if request.otp != "141414":
-        logging.error(f"Invalid OTP provided: {request.otp}")
-        return VerifyOTPResponse(
-            success=False,
-            message=f"Invalid OTP '{request.otp}'. Please enter the correct 6-digit code. (Development OTP: 141414)"
-        )
-    
     # Check if user exists
     user = find_user_by_contact(contact, db)
     
     if user:
-        # USER EXISTS - Login directly
-        logging.info(f"Existing user login: {user.user_id}")
+        # ✅ EXISTING USER - Verify OTP from database and login
+        if "@" in contact:
+            # Email OTP verification from database
+            result = email_service.verify_otp(user.user_id, request.otp, db)
+            if not result.success:
+                return VerifyOTPResponse(success=False, message=result.message)
+        else:
+            # Phone OTP verification (hardcoded)
+            if request.otp != "141414":
+                return VerifyOTPResponse(
+                    success=False,
+                    message="Invalid OTP. Use 141414 for phone number verification."
+                )
+        
+        # OTP verified - login existing user
         access_token = create_access_token(str(user.user_id))
         
         return VerifyOTPResponse(
@@ -195,16 +313,31 @@ def verify_otp_and_authenticate(
             is_new_user=False,
             message="Welcome back! You have been logged in successfully."
         )
+    
     else:
-        # USER DOESN'T EXIST - Need invite token to create account
+        # ✅ NEW USER - Verify from memory → Create user → Move OTP to database
         if not request.invite_token:
-            logging.error(f"New user {contact} attempted registration without invite token")
             return VerifyOTPResponse(
                 success=False,
-                message="User not found. New user registration requires a valid invite code. Please validate your invite code first."
+                message="New user registration requires a valid invite code. Please validate your invite code first."
             )
         
-        # Verify invite token
+        # Step 1: Verify OTP from memory first (don't create user yet)
+        if "@" in contact:
+            # Email OTP verification from memory
+            contact = contact.lower()
+            result = email_service.verify_otp_for_new_user(contact, request.otp, db)
+            if not result.success:
+                return VerifyOTPResponse(success=False, message=result.message)
+        else:
+            # Phone OTP verification (hardcoded)
+            if request.otp != "141414":
+                return VerifyOTPResponse(
+                    success=False,
+                    message="Invalid OTP. Use 141414 for phone number verification."
+                )
+        
+        # Step 2: Verify invite token
         try:
             invite_data = verify_invite_token(request.invite_token)
             invite_id = invite_data["invite_id"]
@@ -217,7 +350,7 @@ def verify_otp_and_authenticate(
                 message="Invalid or expired invite token. Please validate your invite code again."
             )
         
-        # Get invite from database
+        # Step 3: Check invite is available
         invite = db.query(InviteCode).filter(
             InviteCode.invite_id == invite_id,
             InviteCode.invite_code == invite_code
@@ -237,13 +370,14 @@ def verify_otp_and_authenticate(
                 message=f"Invite code '{invite_code}' has already been used by another user."
             )
         
-        # CREATE NEW USER
+        # Step 4: CREATE NEW USER
         try:
             if "@" in contact:
                 # Email-based signup
+                contact = contact.lower()
                 logging.info(f"Creating new user with email: {contact}")
                 user = User(
-                    email=contact.lower(),
+                    email=contact,
                     name="",
                     phone_number=None
                 )
@@ -269,14 +403,38 @@ def verify_otp_and_authenticate(
             db.refresh(user)
             logging.info(f"New user created: {user.user_id}")
             
-            # Mark invite as used and link to user
-            invite.is_used = True
-            invite.user_id = user.user_id
-            invite.used_at = datetime.utcnow()
-            db.commit()
-            logging.info(f"Invite {invite_code} linked to user {user.user_id}")
+            # ✅ Step 5: MOVE OTP from memory to database + mark invite as used
+            if "@" in contact:
+                # For email users, transfer OTP from memory to database
+                logging.info(f"Transferring OTP from memory to database for user {user.user_id}")
+                transfer_result = email_service.verify_otp_for_new_user_and_transfer_to_db(
+                    email=contact,
+                    otp=request.otp,
+                    user_id=user.user_id,
+                    invite_id=invite_id,
+                    db=db
+                )
+                
+                if not transfer_result.success:
+                    # Rollback user creation if OTP transfer fails
+                    logging.error(f"Failed to transfer OTP to database: {transfer_result.message}")
+                    db.delete(user)
+                    db.commit()
+                    return VerifyOTPResponse(
+                        success=False,
+                        message=f"Failed to complete registration: {transfer_result.message}"
+                    )
+                
+                logging.info(f"Successfully transferred OTP to database and marked invite as used for user {user.user_id}")
+            else:
+                # For phone users, just mark invite as used (no OTP in memory)
+                invite.is_used = True
+                invite.user_id = user.user_id
+                invite.used_at = datetime.utcnow()
+                db.commit()
+                logging.info(f"Invite {invite_code} marked as used for phone user {user.user_id}")
             
-            # Generate user JWT token
+            # Step 6: Generate access token
             access_token = create_access_token(str(user.user_id), invite_id)
             
             return VerifyOTPResponse(

@@ -67,7 +67,7 @@ def create_access_token(user_id: str, invite_id: str = None) -> str:
         "exp": expire,
         "iat": datetime.utcnow()
     }
-    
+     
     # Add invite_id for new users
     if invite_id:
         to_encode["invite_id"] = invite_id

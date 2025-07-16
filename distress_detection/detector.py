@@ -31,7 +31,7 @@ class DistressDetector:
 
     def get_embedding(self, text: str):
         # Use the old openai format - no client.embeddings.create
-        response = self.openai_client.embedding.create(
+        response = self.openai_client.embeddings.create(
             model=self.model_name,
             input=[text]
         )
