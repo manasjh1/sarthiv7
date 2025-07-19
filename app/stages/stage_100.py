@@ -1,13 +1,17 @@
+# app/stages/stage_100.py - COMPLETE UPDATED CODE
+
 from app.schemas import ProgressInfo, UniversalRequest, UniversalResponse
 from app.database import SessionLocal
 from app.models import Reflection, User  # Add User import
 from sqlalchemy import update, select 
-from services.email_service import send_email_message
-from services.whatsapp_service import send_whatsapp_message
+from services.providers.email import EmailProvider
+from services.providers.whatsapp import WhatsAppProvider
 
 class Stage100:
     def __init__(self, db):
         self.db = db
+        self.email_provider = EmailProvider()
+        self.whatsapp_provider = WhatsAppProvider()
 
     def handle(self, request: UniversalRequest, user_id: str) -> UniversalResponse:
         reflection_id = request.reflection_id
@@ -43,26 +47,28 @@ class Stage100:
         # Send based on delivery mode
         if delivery_mode == 0:
             # Send email
-            send_email_message(
-                to_email=user.email,
-                subject="Your Sarthi Reflection Summary",
-                message=summary,
-                is_html=False,
-                recipient_name=user.name or "User"
-            )
+            metadata = {
+                "subject": "Your Sarthi Reflection Summary",
+                "recipient_name": user.name or "User"
+            }
+            self.email_provider.send(user.email, summary, metadata)
+            
         elif delivery_mode == 1:
             # Send WhatsApp
-            send_whatsapp_message(reflection_id, summary)
+            if user.phone_number:
+                self.whatsapp_provider.send(str(user.phone_number), summary)
+                
         elif delivery_mode == 2:
             # Send both email and WhatsApp
-            send_email_message(
-                to_email=user.email,
-                subject="Your Sarthi Reflection Summary",
-                message=summary,
-                is_html=False,
-                recipient_name=user.name or "User"
-            )
-            send_whatsapp_message(reflection_id, summary)
+            metadata = {
+                "subject": "Your Sarthi Reflection Summary",
+                "recipient_name": user.name or "User"
+            }
+            self.email_provider.send(user.email, summary, metadata)
+            
+            if user.phone_number:
+                self.whatsapp_provider.send(str(user.phone_number), summary)
+                
         elif delivery_mode == 3:
             pass  # Private — do nothing
 
