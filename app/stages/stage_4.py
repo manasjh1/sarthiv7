@@ -10,7 +10,23 @@ import os
 from datetime import datetime
 
 class Stage4(BaseStage):
-    """Stage 4: Guided conversation with LLM (6-turn limit) with automatic summary generation"""
+    """
+    Stage 4: Guided conversation with LLM (6-turn limit) with automatic summary generation
+    
+    Features:
+    - Plain text format: All user messages sent as plain text (consistent with history)
+    - Backend message: User input count sent as separate system message
+    - Turn limit management: Enforces 6-turn conversation limit
+    
+    Message Format:
+    - User messages: Plain text (consistent with history)
+    - Backend message: Separate system message with just the number
+    
+    Example:
+    User says "hi" (3rd message) → LLM receives:
+    {"role": "user", "content": "hi"}
+    {"role": "system", "content": "3"}  // Backend message with count
+    """
 
     def __init__(self, db):
         super().__init__(db)
@@ -23,6 +39,15 @@ class Stage4(BaseStage):
         return "This method is not used in Stage4."
 
     def get_system_prompt(self, reflection_id: uuid.UUID) -> str:
+        """
+        Get system prompt from CategoryDict table based on reflection's category
+        
+        Args:
+            reflection_id: The reflection ID
+            
+        Returns:
+            System prompt string from database
+        """
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id
         ).first()
@@ -38,10 +63,43 @@ class Stage4(BaseStage):
 
         return category.system_prompt
 
-    def generate_llm_response(self, system_prompt: str, history: list, user_input: str) -> tuple[str, str | None]:
+    def get_user_input_count(self, history: list) -> int:
+        """
+        Simple count of user messages in the conversation
+        
+        Args:
+            history: Conversation history
+            
+        Returns:
+            Number of user inputs + 1 (for current message)
+        """
+        return len([msg for msg in history if msg["role"] == "user"]) + 1
+
+    def generate_llm_response(self, system_prompt: str, history: list, user_input: str, backend_message: str = None) -> tuple[str, str | None]:
+        """
+        Generate LLM response with user message as plain text and backend message separately
+        
+        Args:
+            system_prompt: System prompt for the conversation
+            history: Conversation history
+            user_input: User's message
+            backend_message: Not used - only count is sent
+        """
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
+        
+        # Add user message as plain text (consistent with history)
         messages.append({"role": "user", "content": user_input})
+        
+        # Get user input count for backend message
+        user_count = self.get_user_input_count(history)
+        backend_message_content = str(user_count)
+        
+        # Send backend message (count) as system message
+        messages.append({
+            "role": "system", 
+            "content": backend_message_content  # Backend message with user count
+        })
 
         try:
             response = self.openai_client.chat.completions.create(
@@ -50,6 +108,7 @@ class Stage4(BaseStage):
             )
             raw_reply = response.choices[0].message.content.strip()
 
+            # Check for completion signals
             if "{" in raw_reply and "\"user\":" in raw_reply:
                 try:
                     start_idx = raw_reply.find("{")
@@ -75,6 +134,16 @@ class Stage4(BaseStage):
             raise HTTPException(status_code=500, detail=f"LLM Error: {str(e)}")
 
     def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+        """
+        Main processing method for Stage 4 conversations
+        
+        Args:
+            request: Universal request object
+            user_id: User ID
+            
+        Returns:
+            Universal response object
+        """
         reflection_id = uuid.UUID(request.reflection_id)
         user_message = request.message.strip()
 
@@ -87,6 +156,7 @@ class Stage4(BaseStage):
 
         edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
 
+        # Handle edit mode - user wants to customize their summary
         if edit_mode == "edit":
             from distress_detection import DistressDetector
             distress = DistressDetector().check(user_message)
@@ -109,6 +179,7 @@ class Stage4(BaseStage):
                 data=[]
             )
 
+        # Handle regenerate mode - user wants a new summary
         elif edit_mode == "regenerate":
             history = get_buffer_memory(self.db, reflection_id, stage_no=4)
             system_prompt = self.get_system_prompt(reflection_id)
@@ -125,7 +196,7 @@ class Stage4(BaseStage):
                         return UniversalResponse(
                             success=True,
                             reflection_id=str(reflection_id),
-                            sarthi_message="Here’s a regenerated version of your message. You can still edit it if needed.",
+                            sarthi_message="Here's a regenerated version of your message. You can still edit it if needed.",
                             current_stage=4,
                             next_stage=100,
                             progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
@@ -136,27 +207,39 @@ class Stage4(BaseStage):
 
             raise HTTPException(status_code=500, detail="Regeneration failed")
 
+        # Main conversation flow
         history = get_buffer_memory(self.db, reflection_id, stage_no=4)
         turn_count = len([m for m in history if m["role"] == "user"])
 
+        # Check turn limit
         if turn_count >= 6:
             raise HTTPException(status_code=400, detail="Conversation limit reached")
 
+        # Check if conversation already completed
         if any("__DONE__" in msg["content"] for msg in history if msg["role"] == "assistant"):
             raise HTTPException(status_code=400, detail="Conversation already marked complete")
 
+        # Generate LLM response with backend message (user count)
         system_prompt = self.get_system_prompt(reflection_id)
-        flag, assistant_reply = self.generate_llm_response(system_prompt, history, user_message)
+        flag, assistant_reply = self.generate_llm_response(
+            system_prompt, 
+            history, 
+            user_message
+        )
+        
         is_done = flag == "__DONE__" or turn_count >= 5
 
+        # Store user message in database
         self.db.add(Message(
             text=user_message,
             reflection_id=reflection_id,
-            sender=1,
+            sender=1,  # 1 = user
             stage_no=4
         ))
 
         summary_data = None
+        
+        # Handle conversation completion and summary generation
         if is_done and assistant_reply and assistant_reply.startswith("{"):
             try:
                 summary_json = json.loads(assistant_reply)
@@ -174,10 +257,11 @@ class Stage4(BaseStage):
             except json.JSONDecodeError:
                 sarthi_response = assistant_reply
         elif assistant_reply:
+            # Store AI response in database
             self.db.add(Message(
                 text=assistant_reply,
                 reflection_id=reflection_id,
-                sender=0,
+                sender=0,  # 0 = assistant
                 stage_no=4
             ))
             sarthi_response = assistant_reply
