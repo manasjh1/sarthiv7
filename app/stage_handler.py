@@ -1,14 +1,15 @@
 from typing import List
-from app.schemas import UniversalRequest, UniversalResponse, ProgressInfo
-from app.models import Reflection, StageDict, CategoryDict, Message
+import uuid
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from distress_detection import DistressDetector
-import uuid
+
+from app.schemas import UniversalRequest, UniversalResponse, ProgressInfo
+from app.models import Reflection, StageDict, CategoryDict, Message
 from app.stages.stage_4 import Stage4
 from app.stages.stage_3 import Stage3
-from app.stages.stage_100 import Stage100  # Added back Stage100 import
+from app.stages.stage_100 import Stage100  
 from app.stages.stage_minus_1 import StageMinus1
+from distress_detection import DistressDetector
 
 class StageHandler:
     """Database-driven stage handling with centralized distress detection for all stages"""
@@ -77,9 +78,17 @@ class StageHandler:
             
             # Initialize distress_level to 0 by default
             distress_level = 0
-        
-            # Only check distress for stages 2, 3, 4 (NOT stage 100)
-            if target_stage in [2, 3, 4]:  # Stage100 excluded from distress checking
+
+            # Check if this is a regenerate or edit request - skip distress detection
+            edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
+            
+            if edit_mode in ["regenerate", "edit"]:
+                print(f"Skipping distress detection for {edit_mode} request")
+                distress_level = 0
+            elif current_stage == 100:
+                print("Stage 100 does not require distress checking")
+                distress_level = 0
+            elif target_stage in [2, 3, 4]: 
                 print(f"Checking distress for stage {target_stage}")
                 distress_level = self.check_distress(request.message)
                 
@@ -93,7 +102,7 @@ class StageHandler:
             
             # ================================================================================================= #
             
-            # Fixed: Added missing stage 1 processing
+            
             if target_stage == 1:
                 return self.process_category_stage(reflection_id, request, user_id)
             elif target_stage == 2:
@@ -102,8 +111,8 @@ class StageHandler:
                 return self.process_relationship_stage(reflection_id, request, user_id)
             elif target_stage == 4:
                 return self.process_conversation_stage(reflection_id, request, user_id)
-            elif current_stage == 100:  # Added back Stage100 logic
-                stage = Stage100(self.db)  # Pass DB session to the Stage100 class
+            elif current_stage == 100:  
+                stage = Stage100(self.db)  
                 return stage.handle(request, user_id)
             else:
                 raise HTTPException(status_code=400, detail="Workflow completed")
@@ -173,12 +182,12 @@ class StageHandler:
         if not reflection:
             raise HTTPException(status_code=404, detail="Reflection not found")
 
-        # Debug: Print the request data to see what we're receiving
+        
         print(f"Request data: {request.data}")
         
         category_data = request.data[0] if request.data else {}
         
-        # Now looking for category_no instead of category_id
+        
         category_no = category_data.get("category_no")
         
         print(f"Extracted category_no: {category_no}")
@@ -186,7 +195,7 @@ class StageHandler:
         if not category_no:
             raise HTTPException(status_code=400, detail=f"Category selection required. Expected 'category_no' in data. Received data: {category_data}")
 
-        # Convert to int if it's a string
+        
         try:
             category_no = int(category_no)
         except (ValueError, TypeError):
@@ -200,7 +209,7 @@ class StageHandler:
         if not category:
             raise HTTPException(status_code=400, detail="Invalid category selection")
         
-        # Update reflection
+        
         reflection.category_no = category_no
         reflection.stage_no = 1
         
@@ -243,10 +252,11 @@ class StageHandler:
         if not name:
             raise HTTPException(status_code=400, detail="Name cannot be empty")
 
-        # NO DISTRESS DETECTION HERE - already handled in process_request()
+        
         print("Processing name stage - distress already checked")
         
-        # Update reflection
+        
+        
         reflection.name = name
         reflection.stage_no = 2
         
@@ -256,7 +266,7 @@ class StageHandler:
             reflection_id=reflection_id,
             sender=1,
             stage_no=2,
-            is_distress=False  # Already verified safe by process_request()
+            is_distress=False  
         ))
         self.db.commit()
 
@@ -267,7 +277,7 @@ class StageHandler:
             current_stage=2,
             next_stage=3,
             progress=ProgressInfo(current_step=3, total_step=4, workflow_completed=False),
-            data=[{"distress_level": 0}]  # Safe level since we reached here
+            data=[{"distress_level": 0}]  
         )
 
     def process_relationship_stage(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
@@ -284,10 +294,10 @@ class StageHandler:
         if not relation:
             raise HTTPException(status_code=400, detail="Relationship cannot be empty")
 
-        # NO DISTRESS DETECTION HERE - already handled in process_request()
+        
         print("Processing relationship stage - distress already checked")
         
-        # Update reflection
+        
         reflection.relation = relation
         reflection.stage_no = 3
 
@@ -296,7 +306,7 @@ class StageHandler:
             reflection_id=reflection_id,
             sender=1,
             stage_no=3,
-            is_distress=False  # Already verified safe by process_request()
+            is_distress=False  
         ))
         self.db.commit()
 
@@ -310,23 +320,23 @@ class StageHandler:
             current_stage=3,
             next_stage=4,
             progress=ProgressInfo(current_step=4, total_step=4, workflow_completed=False),
-            data=[{"distress_level": 0}]  # Safe level since we reached here
+            data=[{"distress_level": 0}]  
         )
 
     def process_conversation_stage(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """
         Process conversation - Stage 4 (distress already checked)
         """
-        # NO DISTRESS DETECTION HERE - already handled in process_request()
+        
         print("Processing conversation stage - distress already checked")
         
-        # If we reach here, the message is safe (distress_level = 0)
+        
         stage = Stage4(self.db)
         response = stage.process(request, user_id)
         
-        # Add distress level to response data
+        
         if isinstance(response.data, list):
-            response.data.append({"distress_level": 0})  # Safe level
+            response.data.append({"distress_level": 0})  
         else:
             response.data = [{"distress_level": 0}]
             

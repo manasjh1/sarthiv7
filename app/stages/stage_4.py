@@ -247,11 +247,15 @@ class Stage4(BaseStage):
                     reflection.reflection = summary_json["user"]
                     reflection.updated_at = datetime.utcnow()
                     self.db.commit()
+                    
+                    summary_text = summary_json["user"]
 
                     summary_data = {
                         "summary": summary_json["user"]
                     }
-                    sarthi_response = "Thanks for sharing all that. I've got everything I need — let's shape your message next. 💬"
+                    sarthi_response = (
+                "Thanks for sharing all that. I've got everything I need — let's shape your message next. 💬"
+            )
                 else:
                     sarthi_response = assistant_reply
             except json.JSONDecodeError:

@@ -114,10 +114,11 @@ async def get_reflection_history(
             if not reflection:
                 raise HTTPException(status_code=404, detail="Reflection not found")
             
-            # Get messages
+            
             messages = db.query(Message).filter(
                 Message.reflection_id == reflection_uuid,
-                Message.status == 1
+                Message.status == 1,
+                Message.stage_no == 4   
             ).order_by(Message.created_at).all()
             
             # Format messages

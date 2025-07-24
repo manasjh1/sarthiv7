@@ -33,7 +33,7 @@ class DistressDetector:
         # Use the old openai format - no client.embeddings.create
         response = self.openai_client.embeddings.create(
             model=self.model_name,
-            input=[text]
+            input=text
         )
         return response.data[0].embedding
 

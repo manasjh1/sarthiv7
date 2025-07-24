@@ -1,4 +1,5 @@
 # Core FastAPI and Web Framework
+#python==3.12.4
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
@@ -14,10 +15,11 @@ python-multipart==0.0.6
 # Data Validation and Settings
 pydantic==2.4.2
 pydantic-settings==2.1.0
-typing_extensions==4.8.0
+typing-extensions>=4.11
 
 # Distress Detection Dependencies
-openai>=1.0.0
-pinecone>=3.0.0
+openai==1.97.0
+pinecone==7.3.0
 python-dotenv
 numpy
+jinja2>=3.1.3

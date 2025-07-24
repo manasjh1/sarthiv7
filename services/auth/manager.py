@@ -33,60 +33,134 @@ class AuthManager:
         self.templates_path = os.path.join(os.path.dirname(__file__), "..", "templates")
     
     def send_otp(self, contact: str, invite_token: str = None, db: Session = None) -> AuthResult:
-        """Send OTP using providers and templates"""
+        """Send OTP - ONLY for existing users OR new users with validated invite token"""
         try:
             # Detect channel and normalize
             channel = self.utils.detect_channel(contact)
             contact = self.utils.normalize_contact(contact, channel)
             
-            # Validate contact
+            # Validate contact format
             if not self._validate_contact(contact, channel):
                 return AuthResult(success=False, message="Invalid contact format")
             
-            # Find user
+            # Find user in database
             user = self.utils.find_user_by_contact(contact, db)
             is_existing_user = user is not None
             
-            # Handle invite token for new users
-            if not is_existing_user and channel == "email" and not invite_token:
-                return AuthResult(success=False, message="New users must validate their invite code before requesting OTP")
-            
-            # Generate OTP
-            otp = self._generate_otp()
-            
-            # Prepare template data
-            template_data = {
-                "otp": otp,
-                "name": user.name if user else "User",
-                "app_name": "Sarthi"
-            }
-            
-            # Send based on channel
-            if channel == "email":
-                content = self._load_template("otp_email.html", template_data)
-                metadata = {
-                    "subject": f"Your Sarthi verification code: {otp}",
-                    "recipient_name": template_data["name"]
-                }
-                result = self.email_provider.send(contact, content, metadata)
-            elif channel == "whatsapp":
-                content = self._load_template("otp_whatsapp.txt", template_data)
-                result = self.whatsapp_provider.send(contact, content)
-            else:
-                return AuthResult(success=False, message="Unsupported channel")
-            
-            if not result.success:
-                return AuthResult(success=False, message=f"Failed to send: {result.error}")
-            
-            # Store OTP
+            # STRICT LOGIC: Handle existing vs new users differently
             if is_existing_user:
+                # ===== EXISTING USER PATH =====
+                # Existing users can get OTP directly without any invite token
+                logging.info(f"Existing user found for contact: {contact}")
+                
+                # Generate OTP for existing user
+                otp = self._generate_otp()
+                
+                # Prepare template data
+                template_data = {
+                    "otp": otp,
+                    "name": user.name or "User",
+                    "app_name": "Sarthi"
+                }
+                
+                # Send OTP based on channel
+                if channel == "email":
+                    content = self._load_template("otp_email.html", template_data)
+                    metadata = {
+                        "subject": f"Your Sarthi verification code: {otp}",
+                        "recipient_name": template_data["name"]
+                    }
+                    result = self.email_provider.send(contact, content, metadata)
+                elif channel == "whatsapp":
+                    content = self._load_template("otp_whatsapp.txt", template_data)
+                    result = self.whatsapp_provider.send(contact, content)
+                else:
+                    return AuthResult(success=False, message="Unsupported channel")
+                
+                if not result.success:
+                    return AuthResult(success=False, message=f"Failed to send OTP: {result.error}")
+                
+                # Store OTP for existing user
                 if not self.storage.store_for_existing_user(user.user_id, otp, db):
                     return AuthResult(success=False, message="Please wait 60 seconds before requesting a new OTP")
+                
+                return AuthResult(
+                    success=True, 
+                    message="OTP sent successfully. Welcome back!", 
+                    contact_type=channel
+                )
+                
             else:
+                # ===== NEW USER PATH =====
+                # New users MUST have invite token to even request OTP
+                if not invite_token:
+                    return AuthResult(
+                        success=False, 
+                        message="You are a new user. Please validate your invite code first at /api/invite/validate to get an invite token, then request OTP with both contact and invite token."
+                    )
+                
+                # Validate invite token for new user
+                from app.api.invite import verify_invite_token
+                from app.models import InviteCode
+                
+                try:
+                    # Verify the invite JWT token
+                    invite_data = verify_invite_token(invite_token)
+                    
+                    # Check if invite code exists and is still available
+                    invite = db.query(InviteCode).filter(
+                        InviteCode.invite_id == invite_data["invite_id"],
+                        InviteCode.invite_code == invite_data["invite_code"]
+                    ).first()
+                    
+                    if not invite:
+                        return AuthResult(success=False, message="Invalid invite token")
+                    
+                    if invite.is_used and invite.user_id:
+                        return AuthResult(success=False, message="This invite code has already been used by another user")
+                        
+                    logging.info(f"Valid invite token provided for new user: {contact}")
+                    
+                except Exception as e:
+                    logging.error(f"Invite token validation failed: {str(e)}")
+                    return AuthResult(success=False, message="Invalid or expired invite token. Please validate your invite code again.")
+                
+                # Generate OTP for new user with valid invite token
+                otp = self._generate_otp()
+                
+                # Prepare template data for new user
+                template_data = {
+                    "otp": otp,
+                    "name": "New User",  # New users don't have names yet
+                    "app_name": "Sarthi"
+                }
+                
+                # Send OTP based on channel
+                if channel == "email":
+                    content = self._load_template("otp_email.html", template_data)
+                    metadata = {
+                        "subject": f"Your Sarthi verification code: {otp}",
+                        "recipient_name": "New User"
+                    }
+                    result = self.email_provider.send(contact, content, metadata)
+                elif channel == "whatsapp":
+                    content = self._load_template("otp_whatsapp.txt", template_data)
+                    result = self.whatsapp_provider.send(contact, content)
+                else:
+                    return AuthResult(success=False, message="Unsupported channel")
+                
+                if not result.success:
+                    return AuthResult(success=False, message=f"Failed to send OTP: {result.error}")
+                
+                # Store OTP for new user (in memory)
                 if not self.storage.store_for_new_user(contact, otp):
                     return AuthResult(success=False, message="Please wait 60 seconds before requesting a new OTP")
-            
-            return AuthResult(success=True, message="OTP sent successfully", contact_type=channel)
+                
+                return AuthResult(
+                    success=True, 
+                    message="OTP sent successfully. Please complete registration with the OTP and your invite token.", 
+                    contact_type=channel
+                )
             
         except Exception as e:
             logging.error(f"Error in send_otp: {str(e)}")
