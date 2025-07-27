@@ -227,7 +227,7 @@ class Stage4(BaseStage):
             user_message
         )
         
-        is_done = flag == "__DONE__" or turn_count >= 5
+        is_done = flag == "__DONE__" or turn_count >= 10
 
         # Store user message in database
         self.db.add(Message(
