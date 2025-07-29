@@ -24,29 +24,36 @@
         <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ddd;border-radius:8px;">
           <tr>
             <td style="padding:15px;font-size:14px;line-height:1.5;">
-              <div style="position: relative; overflow: hidden; height: 180px;">
-                <div style="height: 36px; font-size: 14px; color: #333; line-height: 1.6;">
-                  {{feedback_preview}}
-                </div>
-                <div style="height: 144px; position: relative;">
-                
-                  <div style="filter: blur(6px); pointer-events: none; font-size: 14px; line-height: 1.6; color: #333;">
-                    {{feedback_remaining}}
-                  </div>
-
-                
-                  <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 28px; opacity: 0.4; z-index: 5;">🔒</div>
-
-                  <div style="position: absolute; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; align-items: center;">
-                    <a href="https://sarthi.me" style="display:inline-block;padding:10px 18px;background:linear-gradient(90deg,#6e7ff3,#a78bfa);color:#fff;font-size:14px;font-weight:600;text-decoration:none;border-radius:30px;box-shadow:0 2px 5px rgba(0,0,0,0.2);position:relative;z-index:2;">
-                      View Full Summary
-                    </a>
-                  </div>
+              
+              <!-- 20% Preview - Always visible -->
+              <div style="background-color:#f8f9fa;padding:15px;border-radius:5px;margin-bottom:15px;border-left:4px solid #6e7ff3;">
+                <p style="margin:0;font-size:14px;color:#333;line-height:1.6;">
+                  <strong>Preview:</strong><br>
+                  {{feedback_preview}}...
+                </p>
+              </div>
+              
+              <!-- 80% Hidden section with visual cues -->
+              <div style="background-color:#f0f0f0;padding:20px;border-radius:5px;text-align:center;border:2px dashed #ccc;position:relative;">
+                <div style="font-size:40px;margin-bottom:10px;">🔒</div>
+                <p style="margin:0 0 15px;font-size:14px;color:#666;font-style:italic;">
+                  Complete feedback is available on our platform
+                </p>
+                <div style="text-align:center;">
+                  <a href="https://sarthi.me" style="display:inline-block;padding:12px 24px;background:linear-gradient(90deg,#6e7ff3,#a78bfa);color:#fff;font-size:14px;font-weight:600;text-decoration:none;border-radius:25px;box-shadow:0 2px 4px rgba(0,0,0,0.2);">
+                    🔓 View Complete Feedback
+                  </a>
                 </div>
               </div>
+              
             </td>
           </tr>
         </table>
+        
+        <div style="margin-top:15px;padding:10px;background-color:#e3f2fd;border-radius:5px;font-size:12px;color:#1565c0;">
+          📧 <strong>Privacy Protected:</strong> Your complete feedback is securely stored and only visible when you click the link above.
+        </div>
+        
       </td>
     </tr>
     <tr>

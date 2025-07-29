@@ -64,3 +64,7 @@ class UserProfileResponse(BaseModel):
     proficiency_score: Optional[int] = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+class OnboardingChoice(BaseModel):
+    is_anonymous: bool
+    name: Optional[str] = None

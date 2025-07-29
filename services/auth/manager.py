@@ -1,5 +1,3 @@
-# services/auth/manager.py - SIMPLIFIED (NO WHATSAPP TEMPLATE FILE NEEDED)
-
 import os
 import random
 import string
@@ -206,8 +204,47 @@ class AuthManager:
             logging.error(f"Error in verify_otp: {str(e)}")
             return AuthResult(success=False, message="Verification failed")
     
+    def send_feedback_email(self, sender_name: str, receiver_name: str, receiver_email: str, feedback_summary: str) -> AuthResult:
+        """Send feedback email with 20%-80% split"""
+        try:
+            print(f"Sending feedback email to: {receiver_email}")  # Debug
+            
+            # Simple 20%-80% split
+            split_point = int(len(feedback_summary) * 0.2)
+            feedback_preview = feedback_summary[:split_point]
+            feedback_remaining = feedback_summary[split_point:]
+            
+            print(f"Split point: {split_point}, Preview length: {len(feedback_preview)}")  # Debug
+            
+            # Template data
+            template_data = {
+                "sender_name": sender_name,
+                "receiver_name": receiver_name,
+                "feedback_preview": feedback_preview,
+                "feedback_remaining": feedback_remaining
+            }
+            
+            # Load template and send email
+            content = self._load_template("feedback_email.html", template_data)
+            metadata = {
+                "subject": f"You have feedback from {sender_name}",
+                "recipient_name": receiver_name
+            }
+            
+            result = self.email_provider.send(receiver_email, content, metadata)
+            
+            if result.success:
+                return AuthResult(success=True, message=f"Feedback email sent successfully to {receiver_email}")
+            else:
+                print(f"Email send failed: {result.error}")  # Debug
+                return AuthResult(success=False, message=f"Failed to send feedback email: {result.error}")
+                
+        except Exception as e:
+            print(f"Exception in send_feedback_email: {str(e)}")  # Debug
+            return AuthResult(success=False, message=f"Failed to send feedback email: {str(e)}")
+    
     def _load_template(self, template_file: str, data: dict) -> str:
-        """Load template from services/templates/ (only used for email)"""
+        """Load template from services/templates/"""
         template_path = os.path.join(self.templates_path, template_file)
         
         with open(template_path, 'r') as f:
