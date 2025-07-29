@@ -1,25 +1,24 @@
 # Core FastAPI and Web Framework
-#python==3.12.4
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi==0.104.1 --only-binary=all
+uvicorn[standard]==0.24.0 --only-binary=all
 
 # Database and ORM
-sqlalchemy==2.0.23
-psycopg[binary]==3.1.13
-psycopg[pool]==3.1.13
+sqlalchemy==2.0.23 --only-binary=all
+psycopg[binary]==3.1.13 --only-binary=all
+psycopg[pool]==3.1.13 --only-binary=all
 
 # Authentication and Security
-python-jose[cryptography]==3.3.0
-python-multipart==0.0.6
+python-jose[cryptography]==3.3.0 --only-binary=all
+python-multipart==0.0.6 --only-binary=all
 
 # Data Validation and Settings
-pydantic==2.4.2
-pydantic-settings==2.1.0
-typing-extensions>=4.11
+pydantic==2.4.2 --only-binary=all
+pydantic-settings==2.1.0 --only-binary=all
+typing-extensions>=4.11 --only-binary=all
 
 # Distress Detection Dependencies
-openai==1.97.0
-pinecone==7.3.0
-python-dotenv
-numpy
-jinja2>=3.1.3
+openai==1.97.0 --only-binary=all
+pinecone==7.3.0 --only-binary=all
+python-dotenv --only-binary=all
+numpy --only-binary=all
+jinja2>=3.1.3 --only-binary=all
