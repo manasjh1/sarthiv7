@@ -20,7 +20,7 @@ def test_whatsapp_single():
         provider = WhatsAppProvider()
         
         result = provider.send(
-            recipient="917428986796",  
+            recipient="",  
             content="hi"  
         )
         
