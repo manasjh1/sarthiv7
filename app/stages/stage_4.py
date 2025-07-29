@@ -249,9 +249,9 @@ class Stage4(BaseStage):
                     self.db.commit()
                     
                     summary_text = summary_json["user"]
-
+                    
                     summary_data = {
-                        "summary": summary_json["user"]
+                        "summary": summary_text
                     }
                     sarthi_response = (
                 "Thanks for sharing all that. I've got everything I need — let's shape your message next. 💬"

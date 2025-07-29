@@ -1,3 +1,5 @@
+# services/auth/storage.py - UNIFIED FOR EMAIL AND WHATSAPP
+
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
@@ -6,23 +8,23 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.models import OTPToken, InviteCode
 import uuid
 
-
+# In-memory storage for new users (both email and WhatsApp)
 new_user_otps: Dict[str, Dict] = {}
 
 class AuthStorage:
-    """Handles OTP storage for both existing and new users"""
+    """Handles OTP storage for both existing and new users (email and WhatsApp)"""
     
     def store_for_existing_user(self, user_id: uuid.UUID, otp: str, db: Session) -> bool:
-        """Store OTP in database for existing user"""
+        """Store OTP in database for existing user (both email and WhatsApp)"""
         try:
-            
+            # Check if user already has an OTP and enforce cooldown
             existing_otp = db.query(OTPToken).filter(OTPToken.user_id == user_id).first()
             if existing_otp:
                 time_since_creation = datetime.utcnow() - existing_otp.created_at
                 if time_since_creation < timedelta(minutes=1):
                     return False
                 
-                
+                # Delete old OTP
                 try:
                     db.delete(existing_otp)
                     db.flush()
@@ -32,7 +34,7 @@ class AuthStorage:
                     logging.error(f"Failed to delete old OTP for user {user_id}: {str(e)}")
                     return False
             
-            
+            # Store new OTP
             try:
                 otp_token = OTPToken(
                     user_id=user_id,
@@ -54,35 +56,36 @@ class AuthStorage:
             db.rollback()
             return False
     
-    def store_for_new_user(self, email: str, otp: str) -> bool:
-        """Store OTP in memory for new user"""
+    def store_for_new_user(self, contact: str, otp: str) -> bool:
+        """Store OTP in memory for new user (both email and WhatsApp)"""
         try:
-            email = email.lower()
+            # Normalize contact (email to lowercase, phone as-is)
+            normalized_contact = self._normalize_contact(contact)
             
             # Check cooldown - Same as database approach
-            if email in new_user_otps:
-                time_since_creation = datetime.utcnow() - new_user_otps[email]['created_at']
+            if normalized_contact in new_user_otps:
+                time_since_creation = datetime.utcnow() - new_user_otps[normalized_contact]['created_at']
                 if time_since_creation < timedelta(minutes=1):
                     return False
                 
-                logging.info(f"Replacing old OTP for new user {email}")
+                logging.info(f"Replacing old OTP for new user {normalized_contact}")
             
             # Store in memory
-            new_user_otps[email] = {
+            new_user_otps[normalized_contact] = {
                 'otp': otp,
                 'created_at': datetime.utcnow(),
-                'email': email
+                'contact': normalized_contact
             }
             
-            logging.info(f"OTP stored in memory for new user {email}")
+            logging.info(f"OTP stored in memory for new user {normalized_contact}")
             return True
             
         except Exception as e:
-            logging.error(f"Error storing OTP in memory for {email}: {str(e)}")
+            logging.error(f"Error storing OTP in memory for {contact}: {str(e)}")
             return False
     
     def verify_for_existing_user(self, user_id: uuid.UUID, otp: str, db: Session) -> Tuple[bool, str]:
-        """Verify OTP for existing user"""
+        """Verify OTP for existing user (both email and WhatsApp)"""
         try:
             otp = otp.strip()
             
@@ -116,16 +119,16 @@ class AuthStorage:
             logging.error(f"Error verifying OTP for user {user_id}: {str(e)}")
             return False, "Verification failed"
     
-    def verify_for_new_user(self, email: str, otp: str) -> Tuple[bool, str]:
-        """Simple verify for new user (used during registration process)"""
+    def verify_for_new_user(self, contact: str, otp: str) -> Tuple[bool, str]:
+        """Verify OTP for new user (both email and WhatsApp)"""
         try:
             otp = otp.strip()
-            email = email.lower()
+            normalized_contact = self._normalize_contact(contact)
             
-            if email not in new_user_otps:
-                return False, "No OTP found for this email"
+            if normalized_contact not in new_user_otps:
+                return False, "No OTP found for this contact"
             
-            stored_otp_data = new_user_otps[email]
+            stored_otp_data = new_user_otps[normalized_contact]
             
             time_since_creation = datetime.utcnow() - stored_otp_data['created_at']
             if time_since_creation > timedelta(minutes=3):
@@ -133,25 +136,25 @@ class AuthStorage:
             
             # Verify OTP
             if stored_otp_data['otp'] == otp:
-                logging.info(f"OTP verified for new user {email}")
+                logging.info(f"OTP verified for new user {normalized_contact}")
                 return True, "OTP verified successfully"
             else:
                 return False, "Invalid OTP"
                 
         except Exception as e:
-            logging.error(f"Error verifying OTP for new user {email}: {str(e)}")
+            logging.error(f"Error verifying OTP for new user {contact}: {str(e)}")
             return False, "Verification failed"
     
-    def transfer_to_database(self, email: str, user_id: uuid.UUID, invite_id: str, db: Session) -> Tuple[bool, str]:
-        """Transfer OTP from memory to database and mark invite as used"""
+    def transfer_to_database(self, contact: str, user_id: uuid.UUID, invite_id: str, db: Session) -> Tuple[bool, str]:
+        """Transfer OTP from memory to database and mark invite as used (email and WhatsApp)"""
         try:
-            email = email.lower()
+            normalized_contact = self._normalize_contact(contact)
             
             # Get OTP from memory
-            if email not in new_user_otps:
-                return False, "No OTP found for this email"
+            if normalized_contact not in new_user_otps:
+                return False, "No OTP found for this contact"
             
-            stored_otp_data = new_user_otps[email]
+            stored_otp_data = new_user_otps[normalized_contact]
             
             try:
                 # Move OTP from memory to database
@@ -171,7 +174,7 @@ class AuthStorage:
                     invite.used_at = datetime.utcnow()
                 
                 # Delete from memory
-                del new_user_otps[email]
+                del new_user_otps[normalized_contact]
                 
                 db.commit()
                 
@@ -184,31 +187,38 @@ class AuthStorage:
                 return False, "Failed to complete verification process"
                 
         except Exception as e:
-            logging.error(f"Error transferring OTP for {email}: {str(e)}")
+            logging.error(f"Error transferring OTP for {contact}: {str(e)}")
             try:
                 db.rollback()
             except:
                 pass
             return False, "Verification failed"
     
+    def _normalize_contact(self, contact: str) -> str:
+        """Normalize contact for consistent storage (email lowercase, phone as-is)"""
+        if "@" in contact:
+            return contact.lower().strip()
+        else:
+            return contact.strip()
+    
     def cleanup_expired_otps(self, db: Session):
         """Clean up very old OTPs from both memory and database"""
         try:
-            # Clean up memory OTPs (new users)
+            # Clean up memory OTPs (new users - both email and WhatsApp)
             current_time = datetime.utcnow()
-            very_old_emails = []
+            very_old_contacts = []
             
-            for email, otp_data in new_user_otps.items():
+            for contact, otp_data in new_user_otps.items():
                 if current_time - otp_data['created_at'] > timedelta(minutes=10):
-                    very_old_emails.append(email)
+                    very_old_contacts.append(contact)
             
-            for email in very_old_emails:
-                del new_user_otps[email]
+            for contact in very_old_contacts:
+                del new_user_otps[contact]
             
-            if very_old_emails:
-                logging.info(f"Cleaned up {len(very_old_emails)} very old OTPs from memory")
+            if very_old_contacts:
+                logging.info(f"Cleaned up {len(very_old_contacts)} very old OTPs from memory")
             
-            # Clean up database OTPs (existing users)
+            # Clean up database OTPs (existing users - both email and WhatsApp)
             try:
                 very_old_time = datetime.utcnow() - timedelta(minutes=10)
                 expired_count = db.query(OTPToken).filter(

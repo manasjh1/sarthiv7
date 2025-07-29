@@ -1,3 +1,5 @@
+# app/api/otp.py - UNIFIED FOR EMAIL AND WHATSAPP WITH CONTACT PARAMETER
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -39,13 +41,11 @@ def verify_otp_and_authenticate(
     user = auth_manager.utils.find_user_by_contact(contact, db)  
 
     if user:
-        if "@" in contact:
-            result = auth_manager.verify_otp(contact, request.otp, request.invite_token, db)
-            if not result.success:
-                return VerifyOTPResponse(success=False, message=result.message)
-        else:
-            if request.otp != "141414":
-                return VerifyOTPResponse(success=False, message="Invalid OTP.")
+        # ===== EXISTING USER VERIFICATION (UNIFIED FOR EMAIL AND WHATSAPP) =====
+        result = auth_manager.verify_otp(contact, request.otp, request.invite_token, db)
+        if not result.success:
+            return VerifyOTPResponse(success=False, message=result.message)
+            
         access_token = create_access_token(str(user.user_id))
         return VerifyOTPResponse(
             success=True,
@@ -55,16 +55,14 @@ def verify_otp_and_authenticate(
             message="Welcome back!"
         )
     else:
+        # ===== NEW USER REGISTRATION (UNIFIED FOR EMAIL AND WHATSAPP) =====
         if not request.invite_token:
             return VerifyOTPResponse(success=False, message="Invite token required.")
 
-        if "@" in contact:
-            result = auth_manager.verify_otp(contact.lower(), request.otp, request.invite_token, db)
-            if not result.success:
-                return VerifyOTPResponse(success=False, message=result.message)
-        else:
-            if request.otp != "141414":
-                return VerifyOTPResponse(success=False, message="Invalid OTP.")
+        # Use auth manager for OTP verification (both email and WhatsApp)
+        result = auth_manager.verify_otp(contact, request.otp, request.invite_token, db)
+        if not result.success:
+            return VerifyOTPResponse(success=False, message=result.message)
 
         try:
             invite_data = verify_invite_token(request.invite_token)
@@ -75,6 +73,7 @@ def verify_otp_and_authenticate(
             if not invite or (invite.is_used and invite.user_id):
                 return VerifyOTPResponse(success=False, message="Invite code already used.")
 
+            # Create new user based on contact type (email or phone)
             if "@" in contact:
                 user = User(email=contact.lower(), name="", phone_number=None)
             else:
@@ -85,19 +84,14 @@ def verify_otp_and_authenticate(
             db.commit()
             db.refresh(user)
 
-            if "@" in contact:
-                success, message = auth_manager.storage.transfer_to_database(
-                    email=contact.lower(), user_id=user.user_id, invite_id=invite.invite_id, db=db
-                )
-                if not success:
-                    db.delete(user)
-                    db.commit()
-                    return VerifyOTPResponse(success=False, message=message)
-            else:
-                invite.is_used = True
-                invite.user_id = user.user_id
-                invite.used_at = datetime.utcnow()
+            # Transfer OTP and mark invite as used (UNIFIED FOR BOTH EMAIL AND WHATSAPP)
+            success, message = auth_manager.storage.transfer_to_database(
+                contact=contact, user_id=user.user_id, invite_id=invite.invite_id, db=db
+            )
+            if not success:
+                db.delete(user)
                 db.commit()
+                return VerifyOTPResponse(success=False, message=message)
 
             access_token = create_access_token(str(user.user_id), invite.invite_id)
             return VerifyOTPResponse(

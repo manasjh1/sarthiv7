@@ -71,3 +71,42 @@ class AuthUtils:
                     pass
         
         return user
+    
+    def validate_email_format(self, email: str) -> bool:
+       """Validate email format for feedback emails"""
+       import re
+    
+       if not email or not isinstance(email, str):
+          return False
+    
+       # Basic email validation pattern
+       pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+       return re.match(pattern, email.strip()) is not None
+   
+    def extract_email_from_request_data(self, request_data: list) -> str:
+       """Extract email from request data"""
+       if not request_data or not isinstance(request_data, list):
+           return None
+    
+       for item in request_data:
+            if isinstance(item, dict) and "email" in item:
+               email = item.get("email", "").strip()
+               if self.validate_email_format(email):
+                  return email
+
+       return None
+   
+    def sanitize_name_for_email(self, name: str) -> str:
+       """Sanitize name for use in email templates"""
+       if not name or not isinstance(name, str):
+           return "User"
+    
+        # Remove any potentially harmful characters
+       import re
+       sanitized = re.sub(r'[<>"\']', '', name.strip())
+    
+       # Limit length
+       if len(sanitized) > 50:
+        sanitized = sanitized[:50] + "..."
+    
+       return sanitized or "User"

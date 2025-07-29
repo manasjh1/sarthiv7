@@ -15,16 +15,17 @@ class Settings(BaseSettings):
     pinecone_namespace: str = "distress"
     openai_embed_model: str = "text-embedding-3-large"
     pinecone_env: Optional[str] = None  # Optional, some Pinecone setups don't need this
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        
-        
+             
     # ZeptoMail setting 
     zeptomail_token: str
     zeptomail_from_domain: str = "noreply@sarthi.me"
     zeptomail_from_name: str = "Sarthi"
+
+
+    # WhatsApp Business API settings
+    whatsapp_access_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_template_name: str = "authentication"
     
     class Config:
         env_file = ".env"

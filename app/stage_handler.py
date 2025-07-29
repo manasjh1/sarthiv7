@@ -2,7 +2,6 @@ from typing import List
 import uuid
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-
 from app.schemas import UniversalRequest, UniversalResponse, ProgressInfo
 from app.models import Reflection, StageDict, CategoryDict, Message
 from app.stages.stage_4 import Stage4
@@ -43,10 +42,9 @@ class StageHandler:
         """
         print(f"Redirecting user to distress stage from stage {current_stage}")
         
-        # Fixed: changed user_id to giver_user_id to match your model
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id,
-            Reflection.giver_user_id == user_id  # Fixed: was user_id
+            Reflection.giver_user_id == user_id 
         ).first()
         
         if reflection:
@@ -67,31 +65,35 @@ class StageHandler:
             reflection_id = uuid.UUID(request.reflection_id)
             current_stage = self.get_current_stage(reflection_id, user_id)
             
-            # Check if user is already in distress stage (-1)
             if current_stage == -1:
                 print("User is already in distress stage, processing through Stage -1")
                 distress_stage = StageMinus1(self.db)
                 return distress_stage.process(request, user_id)
             
+            # Handle Stage 100 first (delivery mode selection or feedback email)
+            if current_stage == 100:
+                print("Stage 100 - handling delivery mode selection or feedback email")
+                stage = Stage100(self.db)
+                return stage.handle(request, user_id)
+            
+            # Handle Stage 4 completion/continuation
+            if current_stage == 4:
+                print("Stage 4 - checking for completion or continuation")
+                return self.handle_stage4_completion(reflection_id, request, user_id)
+            
             # ================CENTRALIZED DISTRESS DETECTION==================#
             target_stage = current_stage + 1
-            
-            # Initialize distress_level to 0 by default
             distress_level = 0
 
-            # Check if this is a regenerate or edit request - skip distress detection
             edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
             
             if edit_mode in ["regenerate", "edit"]:
                 print(f"Skipping distress detection for {edit_mode} request")
-                distress_level = 0
-            elif current_stage == 100:
-                print("Stage 100 does not require distress checking")
-                distress_level = 0
+                distress_level = 0        
             elif target_stage in [2, 3, 4]: 
                 print(f"Checking distress for stage {target_stage}")
                 distress_level = self.check_distress(request.message)
-                
+                   
                 if distress_level == 1:
                     print(f"Critical distress detected in stage {target_stage}, redirecting to Stage -1")
                     return self.handle_distress_redirect(reflection_id, request, user_id, target_stage)
@@ -102,7 +104,7 @@ class StageHandler:
             
             # ================================================================================================= #
             
-            
+            # Route to appropriate stage
             if target_stage == 1:
                 return self.process_category_stage(reflection_id, request, user_id)
             elif target_stage == 2:
@@ -111,9 +113,6 @@ class StageHandler:
                 return self.process_relationship_stage(reflection_id, request, user_id)
             elif target_stage == 4:
                 return self.process_conversation_stage(reflection_id, request, user_id)
-            elif current_stage == 100:  
-                stage = Stage100(self.db)  
-                return stage.handle(request, user_id)
             else:
                 raise HTTPException(status_code=400, detail="Workflow completed")
         
@@ -168,7 +167,7 @@ class StageHandler:
             sarthi_message=prompt,
             current_stage=0,
             next_stage=1,
-            progress=ProgressInfo(current_step=1, total_step=4, workflow_completed=False),
+            progress=ProgressInfo(current_step=1, total_step=5, workflow_completed=False),
             data=categories_data
         )
 
@@ -182,12 +181,9 @@ class StageHandler:
         if not reflection:
             raise HTTPException(status_code=404, detail="Reflection not found")
 
-        
         print(f"Request data: {request.data}")
         
         category_data = request.data[0] if request.data else {}
-        
-        
         category_no = category_data.get("category_no")
         
         print(f"Extracted category_no: {category_no}")
@@ -195,7 +191,6 @@ class StageHandler:
         if not category_no:
             raise HTTPException(status_code=400, detail=f"Category selection required. Expected 'category_no' in data. Received data: {category_data}")
 
-        
         try:
             category_no = int(category_no)
         except (ValueError, TypeError):
@@ -209,11 +204,9 @@ class StageHandler:
         if not category:
             raise HTTPException(status_code=400, detail="Invalid category selection")
         
-        
         reflection.category_no = category_no
         reflection.stage_no = 1
         
-        # Save message
         message = Message(
             text=request.message if request.message else "",
             reflection_id=reflection_id,
@@ -224,7 +217,6 @@ class StageHandler:
         self.db.add(message)
         self.db.commit()
          
-        # Get stage 2 prompt
         response_data = []
         prompt = self.get_stage_prompt(2)
         
@@ -234,7 +226,7 @@ class StageHandler:
             sarthi_message=prompt,
             current_stage=1,
             next_stage=2,
-            progress=ProgressInfo(current_step=2, total_step=4, workflow_completed=False),
+            progress=ProgressInfo(current_step=2, total_step=5, workflow_completed=False),
             data=response_data
         )
 
@@ -252,15 +244,11 @@ class StageHandler:
         if not name:
             raise HTTPException(status_code=400, detail="Name cannot be empty")
 
-        
         print("Processing name stage - distress already checked")
-        
-        
         
         reflection.name = name
         reflection.stage_no = 2
         
-        # Save message
         self.db.add(Message(
             text=request.message,
             reflection_id=reflection_id,
@@ -276,7 +264,7 @@ class StageHandler:
             sarthi_message=self.get_stage_prompt(3),
             current_stage=2,
             next_stage=3,
-            progress=ProgressInfo(current_step=3, total_step=4, workflow_completed=False),
+            progress=ProgressInfo(current_step=3, total_step=5, workflow_completed=False),
             data=[{"distress_level": 0}]  
         )
 
@@ -294,9 +282,7 @@ class StageHandler:
         if not relation:
             raise HTTPException(status_code=400, detail="Relationship cannot be empty")
 
-        
         print("Processing relationship stage - distress already checked")
-        
         
         reflection.relation = relation
         reflection.stage_no = 3
@@ -319,7 +305,7 @@ class StageHandler:
             sarthi_message=transition_message,
             current_stage=3,
             next_stage=4,
-            progress=ProgressInfo(current_step=4, total_step=4, workflow_completed=False),
+            progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
             data=[{"distress_level": 0}]  
         )
 
@@ -330,17 +316,104 @@ class StageHandler:
         
         print("Processing conversation stage - distress already checked")
         
-        
         stage = Stage4(self.db)
         response = stage.process(request, user_id)
         
+        # Check if Stage 4 completed (summary generated, regenerated, or edited)
+        if response.next_stage == 100:
+            print("Stage 4 completed, updating reflection stage to 100")
+            
+            # Update the reflection stage to 100 in database
+            reflection = self.db.query(Reflection).filter(
+                Reflection.reflection_id == reflection_id,
+                Reflection.giver_user_id == user_id  
+            ).first()
+            
+            if reflection:
+                reflection.stage_no = 100
+                self.db.commit()
+                print(f"Reflection stage updated to 100 for reflection_id: {reflection_id}")
+            
+            # Modify response to include delivery options and feedback option
+            response.sarthi_message = "Perfect! Your message is ready. How would you like to deliver it?"
+            response.current_stage = 100
+            response.next_stage = 100
+            response.progress = ProgressInfo(current_step=5, total_step=5, workflow_completed=False)
+            
+            # Add delivery options and feedback option to response data
+            delivery_and_feedback_options = {
+                "delivery_options": [
+                    {"mode": 0, "name": "Email", "description": "Send via email"},
+                    {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
+                    {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
+                    {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
+                ],
+                "feedback_option": {
+                    "description": "Or send feedback to someone else",
+                    "instruction": "Provide email in data like: {'email': 'recipient@example.com'}"
+                }
+            }
+            
+            if isinstance(response.data, list):
+                response.data.append(delivery_and_feedback_options)
+            else:
+                response.data = [delivery_and_feedback_options]
         
+        # Add distress level info
         if isinstance(response.data, list):
             response.data.append({"distress_level": 0})  
         else:
             response.data = [{"distress_level": 0}]
             
-        return response        
+        return response      
+    
+    def handle_stage4_completion(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:  
+        """
+        Handle stage 4 completion and transition to Stage 100
+        This handles when user is in stage 4 and the conversation might be completed
+        """
+        print("Handling Stage 4 completion/continuation")
+        
+        # Get the reflection to check if summary exists
+        reflection = self.db.query(Reflection).filter(
+            Reflection.reflection_id == reflection_id,
+            Reflection.giver_user_id == user_id
+        ).first()
+        
+        if not reflection:
+            raise HTTPException(status_code=404, detail="Reflection not found")
+        
+        # If summary already exists, user is ready for delivery options
+        if reflection.reflection and reflection.reflection.strip():
+            print("Summary already exists, transitioning to Stage 100")
+            
+            # Make sure stage is set to 100
+            reflection.stage_no = 100
+            self.db.commit()
+            
+            return UniversalResponse(
+                success=True,
+                reflection_id=str(reflection_id),
+                sarthi_message="Great! Your reflection is ready. How would you like to deliver this message?",
+                current_stage=100,
+                next_stage=100,
+                progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=False),
+                data=[{
+                    "delivery_options": [
+                        {"mode": 0, "name": "Email", "description": "Send via email"},
+                        {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
+                        {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
+                        {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
+                    ],
+                    "feedback_option": {
+                        "description": "Or send feedback to someone else",
+                        "instruction": "Provide email in data like: {'email': 'recipient@example.com'}"
+                    }
+                }]
+            )
+        else:
+            print("No summary yet, continuing Stage 4 conversation")
+            return self.process_conversation_stage(reflection_id, request, user_id)
 
     def get_completion_message(self, name: str, relation: str) -> str:
         """Get completion message from database"""

@@ -1,3 +1,5 @@
+# services/auth/manager.py - SIMPLIFIED (NO WHATSAPP TEMPLATE FILE NEEDED)
+
 import os
 import random
 import string
@@ -50,21 +52,19 @@ class AuthManager:
             # STRICT LOGIC: Handle existing vs new users differently
             if is_existing_user:
                 # ===== EXISTING USER PATH =====
-                # Existing users can get OTP directly without any invite token
                 logging.info(f"Existing user found for contact: {contact}")
                 
                 # Generate OTP for existing user
                 otp = self._generate_otp()
                 
-                # Prepare template data
-                template_data = {
-                    "otp": otp,
-                    "name": user.name or "User",
-                    "app_name": "Sarthi"
-                }
-                
                 # Send OTP based on channel
                 if channel == "email":
+                    # Email needs template rendering
+                    template_data = {
+                        "otp": otp,
+                        "name": user.name or "User",
+                        "app_name": "Sarthi"
+                    }
                     content = self._load_template("otp_email.html", template_data)
                     metadata = {
                         "subject": f"Your Sarthi verification code: {otp}",
@@ -72,8 +72,8 @@ class AuthManager:
                     }
                     result = self.email_provider.send(contact, content, metadata)
                 elif channel == "whatsapp":
-                    content = self._load_template("otp_whatsapp.txt", template_data)
-                    result = self.whatsapp_provider.send(contact, content)
+                    # WhatsApp: Pass OTP directly - no template file needed!
+                    result = self.whatsapp_provider.send(contact, otp)
                 else:
                     return AuthResult(success=False, message="Unsupported channel")
                 
@@ -92,7 +92,6 @@ class AuthManager:
                 
             else:
                 # ===== NEW USER PATH =====
-                # New users MUST have invite token to even request OTP
                 if not invite_token:
                     return AuthResult(
                         success=False, 
@@ -128,15 +127,14 @@ class AuthManager:
                 # Generate OTP for new user with valid invite token
                 otp = self._generate_otp()
                 
-                # Prepare template data for new user
-                template_data = {
-                    "otp": otp,
-                    "name": "New User",  # New users don't have names yet
-                    "app_name": "Sarthi"
-                }
-                
                 # Send OTP based on channel
                 if channel == "email":
+                    # Email needs template rendering
+                    template_data = {
+                        "otp": otp,
+                        "name": "New User",
+                        "app_name": "Sarthi"
+                    }
                     content = self._load_template("otp_email.html", template_data)
                     metadata = {
                         "subject": f"Your Sarthi verification code: {otp}",
@@ -144,15 +142,15 @@ class AuthManager:
                     }
                     result = self.email_provider.send(contact, content, metadata)
                 elif channel == "whatsapp":
-                    content = self._load_template("otp_whatsapp.txt", template_data)
-                    result = self.whatsapp_provider.send(contact, content)
+                    # WhatsApp: Pass OTP directly - no template file needed!
+                    result = self.whatsapp_provider.send(contact, otp)
                 else:
                     return AuthResult(success=False, message="Unsupported channel")
                 
                 if not result.success:
                     return AuthResult(success=False, message=f"Failed to send OTP: {result.error}")
                 
-                # Store OTP for new user (in memory)
+                # Store OTP for new user
                 if not self.storage.store_for_new_user(contact, otp):
                     return AuthResult(success=False, message="Please wait 60 seconds before requesting a new OTP")
                 
@@ -177,17 +175,11 @@ class AuthManager:
             user = self.utils.find_user_by_contact(contact, db)
             
             if user:
-                # Existing user verification
-                if channel == "whatsapp" and otp != "141414":
-                    return AuthResult(success=False, message="Invalid OTP. Use 141414 for phone number verification.")
+                # ===== EXISTING USER VERIFICATION =====
+                success, message = self.storage.verify_for_existing_user(user.user_id, otp, db)
+                if not success:
+                    return AuthResult(success=False, message=message)
                 
-                if channel == "email":
-                    success, message = self.storage.verify_for_existing_user(user.user_id, otp, db)
-                    if not success:
-                        return AuthResult(success=False, message=message)
-                
-                # Generate access token logic would go here
-                # For now, return success
                 return AuthResult(
                     success=True,
                     message="Welcome back! You have been logged in successfully.",
@@ -195,22 +187,14 @@ class AuthManager:
                     is_new_user=False
                 )
             else:
-                # New user verification
+                # ===== NEW USER VERIFICATION =====
                 if not invite_token:
                     return AuthResult(success=False, message="New user registration requires a valid invite code")
                 
-                # Handle hardcoded phone OTP
-                if channel == "whatsapp" and otp != "141414":
-                    return AuthResult(success=False, message="Invalid OTP. Use 141414 for phone number verification.")
-                
-                # Verify OTP for email users
-                if channel == "email":
-                    success, message = self.storage.verify_for_new_user(contact, otp)
-                    if not success:
-                        return AuthResult(success=False, message=message)
-                
-                # Here you would handle user creation and invite token verification
-                # This would involve your existing user creation logic from main.py
+                # Verify OTP for both email and WhatsApp new users
+                success, message = self.storage.verify_for_new_user(contact, otp)
+                if not success:
+                    return AuthResult(success=False, message=message)
                 
                 return AuthResult(
                     success=True,
@@ -223,7 +207,7 @@ class AuthManager:
             return AuthResult(success=False, message="Verification failed")
     
     def _load_template(self, template_file: str, data: dict) -> str:
-        """Load template from services/templates/"""
+        """Load template from services/templates/ (only used for email)"""
         template_path = os.path.join(self.templates_path, template_file)
         
         with open(template_path, 'r') as f:

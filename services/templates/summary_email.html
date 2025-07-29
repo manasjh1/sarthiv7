@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Feedback Summary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;color:#333;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:auto;background-color:#ffffff;">
+    <tr>
+      <td style="text-align:center;padding:20px 10px 10px;">
+        <img src="https://via.placeholder.com/120x40?text=LOGO" alt="Sarthi Logo" style="display:block;margin:0 auto;">
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center;background-color:#1e1e2f;color:#ffffff;padding:20px;">
+        <p style="margin:0;font-size:18px;">Hello <strong>{{receiver_name}}</strong>,</p>
+        <p style="margin:5px 0 0;font-size:16px;">You have a feedback from <strong>{{sender_name}}</strong></p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:20px;">
+        <h2 style="margin:0 0 10px;font-size:16px;">Feedback Summary</h2>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ddd;border-radius:8px;">
+          <tr>
+            <td style="padding:15px;font-size:14px;line-height:1.5;">
+              <div style="position: relative; overflow: hidden; height: 180px;">
+                <div style="height: 36px; font-size: 14px; color: #333; line-height: 1.6;">
+                  {{feedback_preview}}
+                </div>
+                <div style="height: 144px; position: relative;">
+                
+                  <div style="filter: blur(6px); pointer-events: none; font-size: 14px; line-height: 1.6; color: #333;">
+                    {{feedback_remaining}}
+                  </div>
+
+                
+                  <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 28px; opacity: 0.4; z-index: 5;">🔒</div>
+
+                  <div style="position: absolute; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; align-items: center;">
+                    <a href="https://sarthi.me" style="display:inline-block;padding:10px 18px;background:linear-gradient(90deg,#6e7ff3,#a78bfa);color:#fff;font-size:14px;font-weight:600;text-decoration:none;border-radius:30px;box-shadow:0 2px 5px rgba(0,0,0,0.2);position:relative;z-index:2;">
+                      View Full Summary
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="background-color:#1e1e2f;color:#ffffff;text-align:center;padding:15px;">
+        <img src="https://via.placeholder.com/100x30?text=LOGO" alt="Sarthi Logo" style="margin-bottom:8px;">
+        <p style="margin:0;font-size:12px;">© 2025 Sarthi</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
