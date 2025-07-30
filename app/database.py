@@ -8,10 +8,10 @@ engine = create_engine(
     settings.database_url,
     echo=False,
     pool_pre_ping=True,
-    connect_args={
-        "sslmode": "require"
-    }
+    connect_args={"sslmode": "require"},
+    execution_options={"compiled_cache": None} 
 )
+
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
