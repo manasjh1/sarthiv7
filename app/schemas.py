@@ -29,7 +29,8 @@ class InviteValidateResponse(BaseModel):
     valid: bool
     message: str
     invite_id: Optional[str] = None
-    invite_token: Optional[str] = None  
+    invite_token: Optional[str] = None 
+     
 
 
 class SendOTPRequest(BaseModel):
@@ -49,10 +50,12 @@ class VerifyOTPRequest(BaseModel):
 
 class VerifyOTPResponse(BaseModel):
     success: bool
+    message: str
     access_token: Optional[str] = None
     user_id: Optional[str] = None
     is_new_user: Optional[bool] = None
-    message: str
+    is_anonymous: Optional[bool] = None 
+    onboarding_required: Optional[bool] = None  
 
 class UserProfileResponse(BaseModel):
     user_id: str

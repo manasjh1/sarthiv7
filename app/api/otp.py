@@ -52,8 +52,11 @@ def verify_otp_and_authenticate(
             access_token=access_token,
             user_id=str(user.user_id),
             is_new_user=False,
+            is_anonymous=user.is_anonymous,
+            onboarding_required=user.is_anonymous is None,
             message="Welcome back!"
         )
+
     else:
         # ===== NEW USER REGISTRATION (UNIFIED FOR EMAIL AND WHATSAPP) =====
         if not request.invite_token:
@@ -99,8 +102,11 @@ def verify_otp_and_authenticate(
                 access_token=access_token,
                 user_id=str(user.user_id),
                 is_new_user=True,
+                is_anonymous=user.is_anonymous,  # Should be None at this point
+                onboarding_required=user.is_anonymous is None,
                 message="Account created successfully!"
             )
+
 
         except Exception as e:
             db.rollback()

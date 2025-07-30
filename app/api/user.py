@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+# from sqlalchemy.ext.asyncio import Session
 from app.database import get_db
 from app.models import User
 from app.schemas import OnboardingChoice
 from app.auth import get_current_user
+from sqlalchemy.orm import Session  # ✅ correct
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 
@@ -15,7 +16,7 @@ async def get_current_user_profile(current_user: User = Depends(get_current_user
     return {
         "user_id": str(current_user.user_id),
         "email": current_user.email,
-        "phone": current_user.phone,
+        "phone": current_user.phone_number,
         "name": current_user.name,
         "is_anonymous": current_user.is_anonymous,
     }
@@ -27,7 +28,7 @@ async def get_current_user_profile(current_user: User = Depends(get_current_user
 async def set_onboarding_choice(
     data: OnboardingChoice,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     if data.is_anonymous:
         current_user.name = None
@@ -38,5 +39,5 @@ async def set_onboarding_choice(
         current_user.name = data.name.strip()
         current_user.is_anonymous = False
 
-    await db.commit()
+    db.commit()
     return {"message": "Onboarding information saved successfully."}

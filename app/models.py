@@ -20,6 +20,8 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     status = Column(SmallInteger, default=1)
+    is_anonymous = Column(Boolean, nullable=True, default=None)
+
 
 class StageDict(Base):
     __tablename__ = "stages_dict"
@@ -53,6 +55,7 @@ class Reflection(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     reflection = Column(Text, nullable=True)
     delivery_mode = Column(SmallInteger, default=0)
+    is_anonymous = Column(Boolean, nullable=True, default=None)
 
 class Message(Base):
     __tablename__ = "messages"
