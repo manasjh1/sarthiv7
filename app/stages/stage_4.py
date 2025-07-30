@@ -91,11 +91,10 @@ class Stage4(BaseStage):
         # Add user message as plain text (consistent with history)
         messages.append({"role": "user", "content": user_input})
         
-        # Get user input count for backend message
+
         user_count = self.get_user_input_count(history)
         backend_message_content = str(user_count)
         
-        # Send backend message (count) as system message
         messages.append({
             "role": "system", 
             "content": backend_message_content  # Backend message with user count
@@ -108,7 +107,6 @@ class Stage4(BaseStage):
             )
             raw_reply = response.choices[0].message.content.strip()
 
-            # Check for completion signals
             if "{" in raw_reply and "\"user\":" in raw_reply:
                 try:
                     start_idx = raw_reply.find("{")
@@ -156,7 +154,6 @@ class Stage4(BaseStage):
 
         edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
 
-        # Handle edit mode - user wants to customize their summary
         if edit_mode == "edit":
             from distress_detection import DistressDetector
             distress = DistressDetector().check(user_message)
@@ -179,7 +176,6 @@ class Stage4(BaseStage):
                 data=[]
             )
 
-        # Handle regenerate mode - user wants a new summary
         elif edit_mode == "regenerate":
             history = get_buffer_memory(self.db, reflection_id, stage_no=4)
             system_prompt = self.get_system_prompt(reflection_id)
@@ -192,6 +188,9 @@ class Stage4(BaseStage):
                         reflection.reflection = summary_json["user"]
                         reflection.updated_at = datetime.utcnow()
                         self.db.commit()
+                        
+                        self.db.refresh(reflection)
+                        full_updated_summary = reflection.reflection
 
                         return UniversalResponse(
                             success=True,
@@ -200,14 +199,17 @@ class Stage4(BaseStage):
                             current_stage=4,
                             next_stage=100,
                             progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
-                            data=[{"summary": summary_json["user"]}]
+                            data=[{
+                                "summary": full_updated_summary,
+                                "regenerated": True,
+                                "updated_at": reflection.updated_at.isoformat() if reflection.updated_at else None
+                            }]
                         )
                 except json.JSONDecodeError:
                     raise HTTPException(status_code=500, detail="Failed to regenerate summary")
 
             raise HTTPException(status_code=500, detail="Regeneration failed")
 
-        # Main conversation flow
         history = get_buffer_memory(self.db, reflection_id, stage_no=4)
         turn_count = len([m for m in history if m["role"] == "user"])
 

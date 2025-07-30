@@ -47,7 +47,7 @@ class Stage0(BaseStage):
             next_stage=1,
             progress=ProgressInfo(
                 current_step=1,
-                total_step=4,
+                total_step=5,
                 workflow_completed=False
             )
         )

@@ -84,7 +84,7 @@ class Stage3(BaseStage):
             next_stage=4,  # Move forward to Stage 4
             progress=ProgressInfo(
                 current_step=4,
-                total_step=4,
+                total_step=5,
                 workflow_completed=False  # Continue to conversation stage
             ),
             data=[]

@@ -100,7 +100,7 @@ class Stage1(BaseStage):
             next_stage=2,
             progress=ProgressInfo(
                 current_step=2,
-                total_step=4,
+                total_step=5,
                 workflow_completed=False
             ),
             data=[]  # Empty data as requested

@@ -89,7 +89,7 @@ class Stage2(BaseStage):
             next_stage=3,
             progress=ProgressInfo(
                 current_step=3,
-                total_step=4,
+                total_step=5,
                 workflow_completed=False
             ),
             data=[]

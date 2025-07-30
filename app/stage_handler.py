@@ -70,9 +70,18 @@ class StageHandler:
                 distress_stage = StageMinus1(self.db)
                 return distress_stage.process(request, user_id)
             
-            # Handle Stage 100 first (delivery mode selection or feedback email)
+            # *** NEW: Check for edit_mode FIRST ***
+            edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
+            
+            # If regenerate/edit request, always route to Stage4 regardless of current_stage
+            if edit_mode in ["regenerate", "edit"]:
+                print(f"Edit mode '{edit_mode}' detected - routing to Stage4 regardless of current stage {current_stage}")
+                stage = Stage4(self.db)
+                return stage.process(request, user_id)
+            
+            # Handle Stage 100 (delivery mode selection or feedback email) - ONLY if not edit mode
             if current_stage == 100:
-                print("Stage 100 - handling delivery mode selection or feedback email")
+                print("Stage 100 - handling identity reveal and delivery")
                 stage = Stage100(self.db)
                 return stage.handle(request, user_id)
             
@@ -84,8 +93,6 @@ class StageHandler:
             # ================CENTRALIZED DISTRESS DETECTION==================#
             target_stage = current_stage + 1
             distress_level = 0
-
-            edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
             
             if edit_mode in ["regenerate", "edit"]:
                 print(f"Skipping distress detection for {edit_mode} request")
@@ -319,6 +326,9 @@ class StageHandler:
         stage = Stage4(self.db)
         response = stage.process(request, user_id)
         
+        # Check for edit_mode to handle regenerate/edit differently
+        edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
+        
         # Check if Stage 4 completed (summary generated, regenerated, or edited)
         if response.next_stage == 100:
             print("Stage 4 completed, updating reflection stage to 100")
@@ -334,38 +344,43 @@ class StageHandler:
                 self.db.commit()
                 print(f"Reflection stage updated to 100 for reflection_id: {reflection_id}")
             
-            # Modify response to include delivery options and feedback option
-            response.sarthi_message = "Perfect! Your message is ready. How would you like to deliver it?"
-            response.current_stage = 100
-            response.next_stage = 100
-            response.progress = ProgressInfo(current_step=5, total_step=5, workflow_completed=False)
-            
-            # Add delivery options and feedback option to response data
-            delivery_and_feedback_options = {
-                "delivery_options": [
-                    {"mode": 0, "name": "Email", "description": "Send via email"},
-                    {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
-                    {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
-                    {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
-                ],
-                "feedback_option": {
-                    "description": "Or send feedback to someone else",
-                    "instruction": "Provide email in data like: {'email': 'recipient@example.com'}"
-                }
-            }
-            
-            if isinstance(response.data, list):
-                response.data.append(delivery_and_feedback_options)
+            # Handle regenerate and edit modes - preserve their data and stage info
+            if edit_mode == "regenerate":
+                print("Regenerate request - preserving summary data and keeping stage 4")
+                # Keep the Stage4 response as-is, don't overwrite
+                response.current_stage = 4  # Keep it as stage 4 for regenerate
+                response.next_stage = 100
+                response.progress = ProgressInfo(current_step=4, total_step=5, workflow_completed=False)
+                # Don't modify response.data or sarthi_message - keep what Stage4 returned
+                
+            elif edit_mode == "edit":
+                print("Edit request - preserving edit confirmation and keeping stage 4")
+                # Keep the Stage4 response as-is, don't overwrite
+                response.current_stage = 4  # Keep it as stage 4 for edit
+                response.next_stage = 100
+                response.progress = ProgressInfo(current_step=4, total_step=5, workflow_completed=False)
+                # Don't modify response.data or sarthi_message - keep what Stage4 returned
+                
             else:
-                response.data = [delivery_and_feedback_options]
+                # FIXED: Normal completion - DON'T show delivery options here
+                # Let Stage 100 handle its own flow (identity first, then delivery)
+                print("Normal completion - Stage 100 will handle identity reveal and delivery")
+                response.sarthi_message = "Perfect! Your message is ready."
+                response.current_stage = 100
+                response.next_stage = 100
+                response.progress = ProgressInfo(current_step=5, total_step=5, workflow_completed=False)
+                
+                # REMOVED: Don't add delivery options here - let Stage 100 handle its own flow
+                # Stage 100 will ask for identity first, then delivery options
         
-        # Add distress level info
-        if isinstance(response.data, list):
-            response.data.append({"distress_level": 0})  
-        else:
-            response.data = [{"distress_level": 0}]
-            
-        return response      
+        # Add distress level info only for normal conversations (not regenerate/edit)
+        if edit_mode not in ["regenerate", "edit"]:
+            if isinstance(response.data, list):
+                response.data.append({"distress_level": 0})  
+            else:
+                response.data = [{"distress_level": 0}]
+                
+        return response     
     
     def handle_stage4_completion(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:  
         """
@@ -383,7 +398,7 @@ class StageHandler:
         if not reflection:
             raise HTTPException(status_code=404, detail="Reflection not found")
         
-        # If summary already exists, user is ready for delivery options
+        # If summary already exists, user is ready for Stage 100 (identity reveal first)
         if reflection.reflection and reflection.reflection.strip():
             print("Summary already exists, transitioning to Stage 100")
             
@@ -391,26 +406,10 @@ class StageHandler:
             reflection.stage_no = 100
             self.db.commit()
             
-            return UniversalResponse(
-                success=True,
-                reflection_id=str(reflection_id),
-                sarthi_message="Great! Your reflection is ready. How would you like to deliver this message?",
-                current_stage=100,
-                next_stage=100,
-                progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=False),
-                data=[{
-                    "delivery_options": [
-                        {"mode": 0, "name": "Email", "description": "Send via email"},
-                        {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
-                        {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
-                        {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
-                    ],
-                    "feedback_option": {
-                        "description": "Or send feedback to someone else",
-                        "instruction": "Provide email in data like: {'email': 'recipient@example.com'}"
-                    }
-                }]
-            )
+            # FIXED: Don't show delivery options immediately
+            # Let Stage 100 handle identity reveal first, then delivery options
+            stage100 = Stage100(self.db)
+            return stage100.handle(request, user_id)
         else:
             print("No summary yet, continuing Stage 4 conversation")
             return self.process_conversation_stage(reflection_id, request, user_id)
