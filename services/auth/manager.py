@@ -120,7 +120,7 @@ class AuthManager:
                     
                 except Exception as e:
                     logging.error(f"Invite token validation failed: {str(e)}")
-                    return AuthResult(success=False, message="Invalid or expired invite token. Please validate your invite code again.")
+                    return AuthResult(success=False, message="You are a new user. Please enter your valid invite code to continue.")
                 
                 # Generate OTP for new user with valid invite token
                 otp = self._generate_otp()
