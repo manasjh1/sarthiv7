@@ -1,6 +1,6 @@
 from app.schemas import ProgressInfo, UniversalRequest, UniversalResponse
 from app.database import SessionLocal
-from app.models import Reflection, User
+from app.models import Reflection, User, Feedback
 from sqlalchemy import update, select 
 from services.providers.email import EmailProvider
 from services.providers.whatsapp import WhatsAppProvider
@@ -26,14 +26,8 @@ class Stage100:
             if isinstance(reflection_id, str):
                 reflection_id = uuid.UUID(reflection_id)
             
-            # Convert user_id to UUID if needed
             if isinstance(user_id, str):
                 user_id = uuid.UUID(user_id)
-
-            # Check for feedback email first (this bypasses everything)
-            email_recipient = next((item.get("email") for item in request.data if "email" in item), None)
-            if email_recipient:
-                return self._handle_feedback_email(reflection_id, user_id, email_recipient)
 
             # Fetch reflection and user data
             reflection = self.db.query(Reflection).filter(
@@ -51,25 +45,50 @@ class Stage100:
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
 
+            # ========== PHASE 3: FEEDBACK COLLECTION (After Delivery) ==========
+            
+            # Check if this is a feedback submission
+            feedback_choice = next((item.get("feedback") for item in request.data if "feedback" in item), None)
+            
+            # If delivery is complete and this is feedback request
+            if (reflection.delivery_mode is not None and 
+                reflection.delivery_mode >= 0 and 
+                feedback_choice is not None):
+                return self._handle_feedback_submission(reflection_id, reflection, feedback_choice)
+            
+            # If delivery is complete but no feedback yet, show feedback options
+            if (reflection.delivery_mode is not None and 
+                reflection.delivery_mode >= 0 and 
+                (reflection.feedback_type is None or reflection.feedback_type == 0)):
+                return self._show_feedback_options(reflection_id)
+            
+            # If feedback already submitted, show completion
+            if reflection.feedback_type and reflection.feedback_type > 0:
+                return self._show_feedback_already_submitted(reflection_id, reflection.feedback_type)
+
+            # ========== PHASE 1 & 2: IDENTITY REVEAL AND DELIVERY ==========
+
+            # Check for THIRD-PARTY email delivery (sending reflection TO someone else)
+            third_party_email = next((item.get("email") for item in request.data if "email" in item), None)
+            if third_party_email:
+                return self._handle_third_party_email_delivery(reflection_id, user_id, third_party_email)
+
             # Extract user choices from request data
             reveal_choice = next((item.get("reveal_name") for item in request.data if "reveal_name" in item), None)
             provided_name = next((item.get("name") for item in request.data if "name" in item), None)
             delivery_mode = next((item.get("delivery_mode") for item in request.data if "delivery_mode" in item), None)
 
-            # ========== PHASE 1: IDENTITY REVEAL LOGIC (HAPPENS FIRST) ==========
+            # ========== PHASE 1: IDENTITY REVEAL LOGIC ==========
             
-            # Check if identity has been decided yet
             identity_decided = False
             
             if user.is_anonymous is True:
-                # User chose to be anonymous during onboarding - auto-decide
                 print(f"User {user_id} is anonymous from onboarding, auto-setting anonymous")
                 reflection.is_anonymous = True
                 reflection.sender_name = None
                 identity_decided = True
                 
             elif reveal_choice is not None:
-                # User has made an identity choice for this reflection
                 if reveal_choice is False:
                     reflection.is_anonymous = True
                     reflection.sender_name = None
@@ -83,7 +102,6 @@ class Stage100:
                     identity_decided = True
                     
                 elif reveal_choice is True and provided_name is None:
-                    # User wants to reveal but hasn't provided name yet
                     default_name = user.name if user.name else ""
                     return UniversalResponse(
                         success=True,
@@ -91,7 +109,7 @@ class Stage100:
                         sarthi_message="Please enter your name to include it in your reflection.",
                         current_stage=100,
                         next_stage=100,
-                        progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=False),
+                        progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
                         data=[{
                             "input": {
                                 "name": "name", 
@@ -109,7 +127,7 @@ class Stage100:
                     sarthi_message="Would you like to reveal your name in this message, or send it anonymously?",
                     current_stage=100,
                     next_stage=100,
-                    progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=False),
+                    progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
                     data=[{
                         "options": [
                             {"reveal_name": True, "label": "Reveal my name"},
@@ -120,16 +138,14 @@ class Stage100:
 
             # ========== PHASE 2: DELIVERY MODE SELECTION ==========
             
-            # Identity is decided, now check delivery mode
             if delivery_mode is None:
-                # Show delivery options now that identity is decided
                 return UniversalResponse(
                     success=True,
                     reflection_id=str(reflection_id),
                     sarthi_message="Perfect! How would you like to deliver your message?",
                     current_stage=100,
                     next_stage=100,
-                    progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=False),
+                    progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
                     data=[{
                         "delivery_options": [
                             {"mode": 0, "name": "Email", "description": "Send via email"},
@@ -137,8 +153,8 @@ class Stage100:
                             {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
                             {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
                         ],
-                        "feedback_option": {
-                            "description": "Or send feedback to someone else",
+                        "third_party_option": {
+                            "description": "Or send to someone else's email",
                             "instruction": "Provide email in data like: {'email': 'recipient@example.com'}"
                         },
                         "identity_status": {
@@ -148,35 +164,20 @@ class Stage100:
                     }]
                 )
 
-            # ========== PHASE 3: FINAL DELIVERY ==========
+            # ========== DELIVERY AND TRANSITION TO FEEDBACK ==========
             
-            # Both identity and delivery mode are decided - process delivery
             if delivery_mode not in [0, 1, 2, 3]:
                 raise HTTPException(status_code=400, detail="Invalid delivery mode")
 
-            # Update and commit all changes
+            # Update reflection with delivery info (DON'T change stage_no)
             reflection.delivery_mode = delivery_mode
             self.db.commit()
 
             # Handle actual delivery
-            delivery_result = self._handle_delivery(delivery_mode, user, reflection.reflection)
+            delivery_result = self._handle_standard_delivery(delivery_mode, user, reflection.reflection)
             
-            return UniversalResponse(
-                success=True,
-                reflection_id=str(reflection_id),
-                sarthi_message=delivery_result["message"],
-                current_stage=100,
-                next_stage=101,
-                progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=True),
-                data=[{
-                    "delivery_status": delivery_result["status"],
-                    "delivery_mode": delivery_mode,
-                    "summary": reflection.reflection,
-                    "is_anonymous": reflection.is_anonymous,
-                    "recipient_name": reflection.name,      # Person reflection is about
-                    "sender_name": reflection.sender_name   # Person sending the reflection
-                }]
-            )
+            # After delivery, show feedback options
+            return self._show_feedback_options_after_delivery(reflection_id, delivery_result)
 
         except HTTPException:
             raise
@@ -186,10 +187,9 @@ class Stage100:
             print(f"Stage 100 error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Stage 100 processing failed: {str(e)}")
 
-    def _handle_feedback_email(self, reflection_id: uuid.UUID, user_id: uuid.UUID, email_recipient: str) -> UniversalResponse:
-        """Handle sending feedback email using AuthManager"""
+    def _handle_third_party_email_delivery(self, reflection_id: uuid.UUID, user_id: uuid.UUID, recipient_email: str) -> UniversalResponse:
+        """Handle sending reflection TO someone else's email (third-party delivery)"""
         try:
-            # Fetch reflection and user data
             reflection = self.db.query(Reflection).filter(
                 Reflection.reflection_id == reflection_id,
                 Reflection.giver_user_id == user_id
@@ -198,14 +198,11 @@ class Stage100:
             if not reflection:
                 raise HTTPException(status_code=404, detail="Reflection not found or access denied")
 
-            if not reflection.reflection or not reflection.reflection.strip():
-                raise HTTPException(status_code=400, detail="No summary available for delivery")
-
             user = self.db.query(User).filter(User.user_id == user_id).first()
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
 
-            # Get sender name based on current reflection settings or user settings
+            # Get sender name
             if hasattr(reflection, 'is_anonymous') and reflection.is_anonymous:
                 sender_name = "Anonymous"
             elif hasattr(reflection, 'sender_name') and reflection.sender_name:
@@ -215,66 +212,34 @@ class Stage100:
             else:
                 sender_name = "Anonymous"
 
-            # Use AuthManager to send feedback email
+            # Send reflection to third party email
             result = self.auth_manager.send_feedback_email(
                 sender_name=sender_name,
-                receiver_name=reflection.name or "Recipient",  # Person reflection is about
-                receiver_email=email_recipient,
+                receiver_name=reflection.name or "Recipient",
+                receiver_email=recipient_email,
                 feedback_summary=reflection.reflection
             )
 
             if not result.success:
                 raise HTTPException(status_code=500, detail=result.message)
 
-            return UniversalResponse(
-                success=True,
-                reflection_id=str(reflection_id),
-                sarthi_message=f"Feedback email has been sent successfully to {email_recipient}! 📧",
-                current_stage=100,
-                next_stage=101,
-                progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=True),
-                data=[{
-                    "email_sent": True,
-                    "recipient": email_recipient,
-                    "sender": sender_name,
-                    "about": reflection.name,  # Person reflection is about
-                    "summary": reflection.reflection
-                }]
-            )
+            # Mark as delivered (set delivery_mode to indicate third-party email)
+            reflection.delivery_mode = 4  # Or use existing mode + flag
+            self.db.commit()
+
+            # After third-party delivery, show feedback options
+            return self._show_feedback_options_after_third_party_delivery(reflection_id, recipient_email, sender_name, reflection.name)
 
         except Exception as e:
-            print(f"Feedback email sending failed: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to send feedback email: {str(e)}")
+            print(f"Third-party email delivery failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to send to third party: {str(e)}")
 
-    def _return_delivery_options(self, reflection_id: uuid.UUID) -> UniversalResponse:
-        """Return delivery options when no delivery_mode is provided - NOT USED IN NEW FLOW"""
-        return UniversalResponse(
-            success=True,
-            reflection_id=str(reflection_id),
-            sarthi_message="Perfect! Your message is ready. How would you like to deliver it?",
-            current_stage=100,
-            next_stage=100,
-            progress=ProgressInfo(current_step=5, total_step=5, workflow_completed=False),
-            data=[{
-                "delivery_options": [
-                    {"mode": 0, "name": "Email", "description": "Send via email"},
-                    {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
-                    {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
-                    {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
-                ],
-                "feedback_option": {
-                    "description": "Or send feedback to someone else",
-                    "instruction": "Provide email in data like: {'email': 'recipient@example.com'}"
-                }
-            }]
-        )
-
-    def _handle_delivery(self, delivery_mode: int, user: User, summary: str) -> dict:
-        """Handle message delivery based on selected mode"""
+    def _handle_standard_delivery(self, delivery_mode: int, user: User, summary: str) -> dict:
+        """Handle standard delivery modes (email to user, WhatsApp, private)"""
         delivery_status = []
         
         try:
-            if delivery_mode == 0:  # Email only
+            if delivery_mode == 0:  # Email to user
                 if not user.email:
                     raise HTTPException(status_code=400, detail="User email not available")
                 
@@ -286,7 +251,7 @@ class Stage100:
                 delivery_status.append("email_sent")
                 message = "Your message has been sent via email successfully! 📧"
                 
-            elif delivery_mode == 1:  # WhatsApp only
+            elif delivery_mode == 1:  # WhatsApp
                 if not user.phone_number:
                     raise HTTPException(status_code=400, detail="User phone number not available")
                 
@@ -334,3 +299,164 @@ class Stage100:
         except Exception as e:
             print(f"Delivery failed: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Message delivery failed: {str(e)}")
+
+    def _show_feedback_options_after_delivery(self, reflection_id: uuid.UUID, delivery_result: dict) -> UniversalResponse:
+        """Show feedback options after successful delivery"""
+        
+        # Fetch all feedback options from database (excluding 0 which is "pending")
+        feedback_options = self.db.query(Feedback).filter(
+            Feedback.feedback_no.between(1, 5)
+        ).order_by(Feedback.feedback_no).all()
+
+        if not feedback_options:
+            raise HTTPException(status_code=500, detail="No feedback options found in database")
+
+        # Format feedback options for response
+        options_data = [
+            {
+                "feedback": option.feedback_no,
+                "text": option.feedback_text
+            }
+            for option in feedback_options
+        ]
+
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message=f"{delivery_result['message']} Now, how are you feeling after completing this reflection?",
+            current_stage=100,
+            next_stage=100,
+            progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=False),
+            data=[{
+                "feedback_options": options_data,
+                "instruction": "Select how you're feeling after this reflection experience",
+                "delivery_status": delivery_result["status"]
+            }]
+        )
+
+    def _show_feedback_options_after_third_party_delivery(self, reflection_id: uuid.UUID, recipient_email: str, sender_name: str, about_name: str) -> UniversalResponse:
+        """Show feedback options after third-party email delivery"""
+        
+        # Fetch all feedback options from database
+        feedback_options = self.db.query(Feedback).filter(
+            Feedback.feedback_no.between(1, 5)
+        ).order_by(Feedback.feedback_no).all()
+
+        if not feedback_options:
+            raise HTTPException(status_code=500, detail="No feedback options found in database")
+
+        options_data = [
+            {
+                "feedback": option.feedback_no,
+                "text": option.feedback_text
+            }
+            for option in feedback_options
+        ]
+
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message=f"Your reflection has been sent to {recipient_email} successfully! 📧 Now, how are you feeling after completing this reflection?",
+            current_stage=100,
+            next_stage=100,
+            progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=False),
+            data=[{
+                "feedback_options": options_data,
+                "instruction": "Select how you're feeling after this reflection experience",
+                "third_party_email_sent": True,
+                "recipient": recipient_email,
+                "sender": sender_name,
+                "about": about_name
+            }]
+        )
+
+    def _show_feedback_options(self, reflection_id: uuid.UUID) -> UniversalResponse:
+        """Show feedback options when called directly (delivery already complete)"""
+        
+        feedback_options = self.db.query(Feedback).filter(
+            Feedback.feedback_no.between(1, 5)
+        ).order_by(Feedback.feedback_no).all()
+
+        if not feedback_options:
+            raise HTTPException(status_code=500, detail="No feedback options found in database")
+
+        options_data = [
+            {
+                "feedback": option.feedback_no,
+                "text": option.feedback_text
+            }
+            for option in feedback_options
+        ]
+
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message="How are you feeling after completing this reflection? Your feedback helps us improve Sarthi for everyone.",
+            current_stage=100,
+            next_stage=100,
+            progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=False),
+            data=[{
+                "feedback_options": options_data,
+                "instruction": "Select how you're feeling after this reflection experience"
+            }]
+        )
+
+    def _handle_feedback_submission(self, reflection_id: uuid.UUID, reflection: Reflection, feedback_choice: int) -> UniversalResponse:
+        """Handle feedback submission and complete workflow"""
+        
+        # Validate feedback choice
+        if not isinstance(feedback_choice, int) or feedback_choice not in [1, 2, 3, 4, 5]:
+            raise HTTPException(status_code=400, detail="Invalid feedback choice. Must be 1, 2, 3, 4, or 5")
+
+        # Verify feedback option exists in database
+        feedback_option = self.db.query(Feedback).filter(
+            Feedback.feedback_no == feedback_choice
+        ).first()
+
+        if not feedback_option:
+            raise HTTPException(status_code=400, detail=f"Feedback option {feedback_choice} not found in database")
+
+        # Update reflection with feedback
+        reflection.feedback_type = feedback_choice
+        self.db.commit()
+
+        # Return success response with feedback confirmation
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message=f"Thank you for your feedback! You selected: '{feedback_option.feedback_text}'. Your journey with Sarthi is now complete. 🌟",
+            current_stage=100,
+            next_stage=101,  # Logical completion
+            progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=True),
+            data=[{
+                "feedback_submitted": True,
+                "feedback_choice": feedback_choice,
+                "feedback_text": feedback_option.feedback_text,
+                "workflow_complete": True
+            }]
+        )
+
+    def _show_feedback_already_submitted(self, reflection_id: uuid.UUID, feedback_type: int) -> UniversalResponse:
+        """Show message when feedback has already been submitted"""
+        
+        # Get the feedback text
+        feedback_option = self.db.query(Feedback).filter(
+            Feedback.feedback_no == feedback_type
+        ).first()
+        
+        feedback_text = feedback_option.feedback_text if feedback_option else f"Option {feedback_type}"
+
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message=f"You have already submitted your feedback: '{feedback_text}'. Thank you for using Sarthi! 🌟",
+            current_stage=100,
+            next_stage=101,
+            progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=True),
+            data=[{
+                "feedback_already_submitted": True,
+                "feedback_choice": feedback_type,
+                "feedback_text": feedback_text,
+                "workflow_complete": True
+            }]
+        )

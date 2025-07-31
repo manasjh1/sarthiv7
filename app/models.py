@@ -39,6 +39,13 @@ class CategoryDict(Base):
     status = Column(SmallInteger, default=1)
     system_prompt = Column(Text, nullable=True)   
 
+class Feedback(Base):
+    """Feedback model for collecting user experience feedback"""
+    __tablename__ = "feedback"
+    
+    feedback_no = Column(SmallInteger, primary_key=True)
+    feedback_text = Column(Text, nullable=True)
+
 class Reflection(Base):
     __tablename__ = "reflections"
     
@@ -57,6 +64,7 @@ class Reflection(Base):
     delivery_mode = Column(SmallInteger, default=0)
     is_anonymous = Column(Boolean, nullable=True, default=None)
     sender_name = Column(String, nullable=True, default=None)
+    feedback_type = Column(SmallInteger, ForeignKey("feedback.feedback_no"), default=0)  # Links to feedback table
 
 class Message(Base):
     __tablename__ = "messages"
@@ -103,5 +111,3 @@ class OTPToken(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, unique=True)
     otp = Column(String(6), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    

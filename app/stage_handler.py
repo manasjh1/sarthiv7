@@ -70,7 +70,7 @@ class StageHandler:
                 distress_stage = StageMinus1(self.db)
                 return distress_stage.process(request, user_id)
             
-            # *** NEW: Check for edit_mode FIRST ***
+            # *** Check for edit_mode FIRST ***
             edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
             
             # If regenerate/edit request, always route to Stage4 regardless of current_stage
@@ -79,9 +79,9 @@ class StageHandler:
                 stage = Stage4(self.db)
                 return stage.process(request, user_id)
             
-            # Handle Stage 100 (delivery mode selection or feedback email) - ONLY if not edit mode
+            # Handle Stage 100 (delivery mode selection, feedback email, and feedback collection)
             if current_stage == 100:
-                print("Stage 100 - handling identity reveal and delivery")
+                print("Stage 100 - handling identity reveal, delivery, and feedback collection")
                 stage = Stage100(self.db)
                 return stage.handle(request, user_id)
             
@@ -174,7 +174,7 @@ class StageHandler:
             sarthi_message=prompt,
             current_stage=0,
             next_stage=1,
-            progress=ProgressInfo(current_step=1, total_step=5, workflow_completed=False),
+            progress=ProgressInfo(current_step=1, total_step=6, workflow_completed=False),  # Updated to 6 steps
             data=categories_data
         )
 
@@ -233,7 +233,7 @@ class StageHandler:
             sarthi_message=prompt,
             current_stage=1,
             next_stage=2,
-            progress=ProgressInfo(current_step=2, total_step=5, workflow_completed=False),
+            progress=ProgressInfo(current_step=2, total_step=6, workflow_completed=False),  # Updated to 6 steps
             data=response_data
         )
 
@@ -271,7 +271,7 @@ class StageHandler:
             sarthi_message=self.get_stage_prompt(3),
             current_stage=2,
             next_stage=3,
-            progress=ProgressInfo(current_step=3, total_step=5, workflow_completed=False),
+            progress=ProgressInfo(current_step=3, total_step=6, workflow_completed=False),  # Updated to 6 steps
             data=[{"distress_level": 0}]  
         )
 
@@ -312,7 +312,7 @@ class StageHandler:
             sarthi_message=transition_message,
             current_stage=3,
             next_stage=4,
-            progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
+            progress=ProgressInfo(current_step=4, total_step=6, workflow_completed=False),  # Updated to 6 steps
             data=[{"distress_level": 0}]  
         )
 
@@ -347,31 +347,23 @@ class StageHandler:
             # Handle regenerate and edit modes - preserve their data and stage info
             if edit_mode == "regenerate":
                 print("Regenerate request - preserving summary data and keeping stage 4")
-                # Keep the Stage4 response as-is, don't overwrite
                 response.current_stage = 4  # Keep it as stage 4 for regenerate
                 response.next_stage = 100
-                response.progress = ProgressInfo(current_step=4, total_step=5, workflow_completed=False)
-                # Don't modify response.data or sarthi_message - keep what Stage4 returned
+                response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)  # Updated to 6 steps
                 
             elif edit_mode == "edit":
                 print("Edit request - preserving edit confirmation and keeping stage 4")
-                # Keep the Stage4 response as-is, don't overwrite
                 response.current_stage = 4  # Keep it as stage 4 for edit
                 response.next_stage = 100
-                response.progress = ProgressInfo(current_step=4, total_step=5, workflow_completed=False)
-                # Don't modify response.data or sarthi_message - keep what Stage4 returned
+                response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)  # Updated to 6 steps
                 
             else:
-                # FIXED: Normal completion - DON'T show delivery options here
-                # Let Stage 100 handle its own flow (identity first, then delivery)
-                print("Normal completion - Stage 100 will handle identity reveal and delivery")
+                # Normal completion - Stage 100 will handle identity, delivery, and feedback
+                print("Normal completion - Stage 100 will handle identity reveal, delivery, and feedback")
                 response.sarthi_message = "Perfect! Your message is ready."
                 response.current_stage = 100
                 response.next_stage = 100
-                response.progress = ProgressInfo(current_step=5, total_step=5, workflow_completed=False)
-                
-                # REMOVED: Don't add delivery options here - let Stage 100 handle its own flow
-                # Stage 100 will ask for identity first, then delivery options
+                response.progress = ProgressInfo(current_step=5, total_step=6, workflow_completed=False)  # Updated to 6 steps
         
         # Add distress level info only for normal conversations (not regenerate/edit)
         if edit_mode not in ["regenerate", "edit"]:
@@ -398,7 +390,7 @@ class StageHandler:
         if not reflection:
             raise HTTPException(status_code=404, detail="Reflection not found")
         
-        # If summary already exists, user is ready for Stage 100 (identity reveal first)
+        # If summary already exists, user is ready for Stage 100 (identity reveal, delivery, feedback)
         if reflection.reflection and reflection.reflection.strip():
             print("Summary already exists, transitioning to Stage 100")
             
@@ -406,8 +398,7 @@ class StageHandler:
             reflection.stage_no = 100
             self.db.commit()
             
-            # FIXED: Don't show delivery options immediately
-            # Let Stage 100 handle identity reveal first, then delivery options
+            # Let Stage 100 handle identity reveal, delivery, and feedback
             stage100 = Stage100(self.db)
             return stage100.handle(request, user_id)
         else:
