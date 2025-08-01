@@ -1,4 +1,4 @@
-# app/api/otp.py - UNIFIED FOR EMAIL AND WHATSAPP WITH CONTACT PARAMETER - NOW ASYNC
+# app/api/otp.py - UNIFIED FOR EMAIL AND WHATSAPP WITH CONTACT PARAMETER - NOW ASYNC - FIXED VERSION
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -88,15 +88,20 @@ async def verify_otp_and_authenticate(  # NOW ASYNC
             db.refresh(user)
 
             # Transfer OTP and mark invite as used (UNIFIED FOR BOTH EMAIL AND WHATSAPP)
+            # FIX: Convert UUID to string to avoid JSON serialization error
             success, message = auth_manager.storage.transfer_to_database(
-                contact=contact, user_id=user.user_id, invite_id=invite.invite_id, db=db
+                contact=contact, 
+                user_id=user.user_id, 
+                invite_id=str(invite.invite_id),  # ← FIX: Convert UUID to string
+                db=db
             )
             if not success:
                 db.delete(user)
                 db.commit()
                 return VerifyOTPResponse(success=False, message=message)
 
-            access_token = create_access_token(str(user.user_id), invite.invite_id)
+            # FIX: Ensure all UUIDs are converted to strings for JSON serialization
+            access_token = create_access_token(str(user.user_id), str(invite.invite_id))
             return VerifyOTPResponse(
                 success=True,
                 access_token=access_token,
