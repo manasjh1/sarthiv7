@@ -1,6 +1,7 @@
 import os
+import asyncio
 from dotenv import load_dotenv
-from openai import OpenAI 
+from openai import AsyncOpenAI 
 from pinecone import Pinecone
 
 load_dotenv()
@@ -22,30 +23,41 @@ class DistressDetector:
         if not self.index_name:
             raise ValueError("PINECONE_INDEX environment variable is required")
 
-        # OpenAI setup - OLD FORMAT (no client initialization)
-        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Async OpenAI setup
+        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # Pinecone setup (v7+ format)
+        # Pinecone setup (synchronous client - we'll use asyncio.to_thread)
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = self.pc.Index(self.index_name)
 
-    def get_embedding(self, text: str):
-        # Use the old openai format - no client.embeddings.create
-        response = self.openai_client.embeddings.create(
+    async def get_embedding(self, text: str):
+        """Get embedding asynchronously"""
+        response = await self.openai_client.embeddings.create(
             model=self.model_name,
             input=text
         )
         return response.data[0].embedding
 
-    def check(self, message: str) -> int:
+    def _sync_pinecone_query(self, embedding):
+        """Synchronous Pinecone query to be run in thread"""
+        return self.index.query(
+            vector=embedding,
+            top_k=5,
+            include_metadata=True,
+            namespace=self.namespace
+        )
+
+    async def check(self, message: str) -> int:
+        """Check for distress asynchronously"""
         try:
-            embedding = self.get_embedding(message)
-            result = self.index.query(
-                vector=embedding,
-                top_k=5,
-                include_metadata=True,
-                namespace=self.namespace
-            )
+            # Run embedding and pinecone query concurrently
+            embedding_task = self.get_embedding(message)
+            
+            # Get embedding first
+            embedding = await embedding_task
+            
+            # Run Pinecone query in thread pool to avoid blocking
+            result = await asyncio.to_thread(self._sync_pinecone_query, embedding)
 
             if result and result.matches:
                 match = result.matches[0]
@@ -60,4 +72,8 @@ class DistressDetector:
             return 0
         except Exception as e:
             print(f"Error in distress detection: {str(e)}")
-            return 0 
+            return 0
+
+    async def close(self):
+        """Close async client"""
+        await self.openai_client.close()

@@ -36,7 +36,7 @@ class Stage1(BaseStage):
         
         return prompt.strip()
     
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """Process category selection and move to stage 2"""
         reflection_id = uuid.UUID(request.reflection_id)
         

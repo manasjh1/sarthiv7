@@ -31,7 +31,7 @@ class Stage3(BaseStage):
             f"Take a breath, there's no rush. When you're ready, start anywhere. 😊"
         )
     
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         reflection_id = uuid.UUID(request.reflection_id)
         
         relation = request.message.strip()

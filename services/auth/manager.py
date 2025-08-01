@@ -23,7 +23,7 @@ class AuthResult:
     error_code: Optional[str] = None
 
 class AuthManager:
-    """Central auth manager - handles all authentication messaging"""
+    """Central auth manager - handles all authentication messaging with async support"""
     
     def __init__(self):
         self.email_provider = EmailProvider()
@@ -32,8 +32,8 @@ class AuthManager:
         self.utils = AuthUtils()
         self.templates_path = os.path.join(os.path.dirname(__file__), "..", "templates")
     
-    def send_otp(self, contact: str, invite_token: str = None, db: Session = None) -> AuthResult:
-        """Send OTP - ONLY for existing users OR new users with validated invite token"""
+    async def send_otp(self, contact: str, invite_token: str = None, db: Session = None) -> AuthResult:
+        """Send OTP asynchronously - ONLY for existing users OR new users with validated invite token"""
         try:
             # Detect channel and normalize
             channel = self.utils.detect_channel(contact)
@@ -55,7 +55,7 @@ class AuthManager:
                 # Generate OTP for existing user
                 otp = self._generate_otp()
                 
-                # Send OTP based on channel
+                # Send OTP based on channel - ASYNC
                 if channel == "email":
                     # Email needs template rendering
                     template_data = {
@@ -68,10 +68,10 @@ class AuthManager:
                         "subject": f"Your Sarthi verification code: {otp}",
                         "recipient_name": template_data["name"]
                     }
-                    result = self.email_provider.send(contact, content, metadata)
+                    result = await self.email_provider.send(contact, content, metadata)
                 elif channel == "whatsapp":
                     # WhatsApp: Pass OTP directly - no template file needed!
-                    result = self.whatsapp_provider.send(contact, otp)
+                    result = await self.whatsapp_provider.send(contact, otp)
                 else:
                     return AuthResult(success=False, message="Unsupported channel")
                 
@@ -126,7 +126,7 @@ class AuthManager:
                 # Generate OTP for new user with valid invite token
                 otp = self._generate_otp()
                 
-                # Send OTP based on channel
+                # Send OTP based on channel - ASYNC
                 if channel == "email":
                     # Email needs template rendering
                     template_data = {
@@ -139,10 +139,10 @@ class AuthManager:
                         "subject": f"Your Sarthi verification code: {otp}",
                         "recipient_name": "New User"
                     }
-                    result = self.email_provider.send(contact, content, metadata)
+                    result = await self.email_provider.send(contact, content, metadata)
                 elif channel == "whatsapp":
                     # WhatsApp: Pass OTP directly - no template file needed!
-                    result = self.whatsapp_provider.send(contact, otp)
+                    result = await self.whatsapp_provider.send(contact, otp)
                 else:
                     return AuthResult(success=False, message="Unsupported channel")
                 
@@ -164,7 +164,7 @@ class AuthManager:
             return AuthResult(success=False, message="Failed to send OTP")
     
     def verify_otp(self, contact: str, otp: str, invite_token: str = None, db: Session = None) -> AuthResult:
-        """Verify OTP and handle user creation"""
+        """Verify OTP and handle user creation (synchronous - no external calls)"""
         try:
             # Detect channel and normalize
             channel = self.utils.detect_channel(contact)
@@ -205,8 +205,8 @@ class AuthManager:
             logging.error(f"Error in verify_otp: {str(e)}")
             return AuthResult(success=False, message="Verification failed")
     
-    def send_feedback_email(self, sender_name: str, receiver_name: str, receiver_email: str, feedback_summary: str) -> AuthResult:
-        """Send feedback email with 20%-80% split"""
+    async def send_feedback_email(self, sender_name: str, receiver_name: str, receiver_email: str, feedback_summary: str) -> AuthResult:
+        """Send feedback email with 20%-80% split - ASYNC"""
         try:
             print(f"Sending feedback email to: {receiver_email}")  # Debug
             
@@ -225,14 +225,14 @@ class AuthManager:
                 "feedback_remaining": feedback_remaining
             }
             
-            # Load template and send email
+            # Load template and send email - ASYNC
             content = self._load_template("feedback_email.html", template_data)
             metadata = {
                 "subject": f"You have feedback from {sender_name}",
                 "recipient_name": receiver_name
             }
             
-            result = self.email_provider.send(receiver_email, content, metadata)
+            result = await self.email_provider.send(receiver_email, content, metadata)
             
             if result.success:
                 return AuthResult(success=True, message=f"Feedback email sent successfully to {receiver_email}")
@@ -245,7 +245,7 @@ class AuthManager:
             return AuthResult(success=False, message=f"Failed to send feedback email: {str(e)}")
     
     def _load_template(self, template_file: str, data: dict) -> str:
-        """Load template from services/templates/"""
+        """Load template from services/templates/ (synchronous)"""
         template_path = os.path.join(self.templates_path, template_file)
         
         with open(template_path, 'r') as f:
@@ -255,7 +255,7 @@ class AuthManager:
         return template.render(**data)
     
     def _validate_contact(self, contact: str, channel: str) -> bool:
-        """Validate contact using appropriate provider"""
+        """Validate contact using appropriate provider (synchronous)"""
         if channel == "email":
             return self.email_provider.validate_recipient(contact)
         elif channel == "whatsapp":
@@ -263,5 +263,5 @@ class AuthManager:
         return False
     
     def _generate_otp(self) -> str:
-        """Generate 6-digit OTP"""
+        """Generate 6-digit OTP (synchronous)"""
         return ''.join(random.choices(string.digits, k=6))

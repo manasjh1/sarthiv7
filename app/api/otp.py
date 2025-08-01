@@ -1,4 +1,4 @@
-# app/api/otp.py - UNIFIED FOR EMAIL AND WHATSAPP WITH CONTACT PARAMETER
+# app/api/otp.py - UNIFIED FOR EMAIL AND WHATSAPP WITH CONTACT PARAMETER - NOW ASYNC
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -16,12 +16,12 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 auth_manager = AuthManager()
 
 @router.post("/send-otp", response_model=SendOTPResponse)
-def send_otp(
+async def send_otp(  # NOW ASYNC
     request: SendOTPRequest,
     db: Session = Depends(get_db)
 ):
     contact = request.contact.strip()
-    result = auth_manager.send_otp(
+    result = await auth_manager.send_otp(  # ASYNC CALL
         contact=contact,
         invite_token=request.invite_token,
         db=db
@@ -33,7 +33,7 @@ def send_otp(
     )
 
 @router.post("/verify-otp", response_model=VerifyOTPResponse)
-def verify_otp_and_authenticate(
+async def verify_otp_and_authenticate(  # NOW ASYNC
     request: VerifyOTPRequest,
     db: Session = Depends(get_db)
 ):
@@ -106,7 +106,6 @@ def verify_otp_and_authenticate(
                 onboarding_required=user.is_anonymous is None,
                 message="Account created successfully!"
             )
-
 
         except Exception as e:
             db.rollback()

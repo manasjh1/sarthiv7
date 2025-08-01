@@ -1,6 +1,5 @@
-# services/providers/whatsapp.py - With detailed debugging
-
-import requests
+import aiohttp
+import asyncio
 import logging
 import re
 import json
@@ -9,7 +8,7 @@ from app.config import settings
 from .base import MessageProvider, SendResult
 
 class WhatsAppProvider(MessageProvider):
-    """WhatsApp provider with detailed debugging"""
+    """Async WhatsApp provider with detailed debugging"""
     
     def __init__(self):
         self.api_url = "https://crmapi.wa0.in/api/meta/v19.0"
@@ -20,8 +19,8 @@ class WhatsAppProvider(MessageProvider):
         if not self.access_token or not self.phone_number_id:
             logging.warning("WhatsApp API credentials not configured")
     
-    def send(self, recipient: str, content: str, metadata: Dict[str, Any] = None) -> SendResult:
-        """Send WhatsApp message with detailed debugging"""
+    async def send(self, recipient: str, content: str, metadata: Dict[str, Any] = None) -> SendResult:
+        """Send WhatsApp message asynchronously with detailed debugging"""
         try:
             if not self.access_token or not self.phone_number_id:
                 return SendResult(success=False, error="WhatsApp service not configured")
@@ -88,54 +87,61 @@ class WhatsAppProvider(MessageProvider):
             print(f"🔢 OTP: {otp_code}")
             print(f"📦 Payload: {json.dumps(payload, indent=2)}")
             
-            # Send request
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            # Send async request
+            timeout = aiohttp.ClientTimeout(total=30)
             
-            # DEBUG: Print full response
-            print(f"\n📊 RESPONSE DEBUG:")
-            print(f"Status Code: {response.status_code}")
-            print(f"Headers: {dict(response.headers)}")
-            print(f"Raw Response: {response.text}")
-            
-            try:
-                response_data = response.json()
-                print(f"Parsed JSON: {json.dumps(response_data, indent=2)}")
-            except json.JSONDecodeError:
-                print("❌ Response is not valid JSON")
-                return SendResult(success=False, error=f"Invalid JSON response: {response.text}")
-            
-            if response.status_code == 200:
-                # Try to extract message info
-                messages = response_data.get("messages", [])
-                if messages and len(messages) > 0:
-                    message_id = messages[0].get("id", "no_id_found")
-                    message_status = messages[0].get("message_status", "no_status_found")
-                else:
-                    message_id = "no_messages_array"
-                    message_status = "no_messages_array"
-                
-                print(f"\n✅ SUCCESS DETAILS:")
-                print(f"Message ID: {message_id}")
-                print(f"Status: {message_status}")
-                
-                return SendResult(success=True, message_id=message_id)
-            else:
-                print(f"\n❌ API ERROR:")
-                print(f"Status: {response.status_code}")
-                print(f"Response: {response.text}")
-                
-                # Try to get error details
-                if 'error' in response_data:
-                    error_info = response_data['error']
-                    error_msg = f"API Error {error_info.get('code', 'unknown')}: {error_info.get('message', 'unknown error')}"
-                else:
-                    error_msg = f"HTTP {response.status_code}: {response.text}"
-                
-                return SendResult(success=False, error=error_msg)
-                
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Network error: {str(e)}")
-            return SendResult(success=False, error=f"Network error: {str(e)}")
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    response_text = await response.text()
+                    
+                    # DEBUG: Print full response
+                    print(f"\n📊 RESPONSE DEBUG:")
+                    print(f"Status Code: {response.status}")
+                    print(f"Headers: {dict(response.headers)}")
+                    print(f"Raw Response: {response_text}")
+                    
+                    try:
+                        response_data = json.loads(response_text)
+                        print(f"Parsed JSON: {json.dumps(response_data, indent=2)}")
+                    except json.JSONDecodeError:
+                        print("❌ Response is not valid JSON")
+                        return SendResult(success=False, error=f"Invalid JSON response: {response_text}")
+                    
+                    if response.status == 200:
+                        # Try to extract message info
+                        messages = response_data.get("messages", [])
+                        if messages and len(messages) > 0:
+                            message_id = messages[0].get("id", "no_id_found")
+                            message_status = messages[0].get("message_status", "no_status_found")
+                        else:
+                            message_id = "no_messages_array"
+                            message_status = "no_messages_array"
+                        
+                        print(f"\n✅ SUCCESS DETAILS:")
+                        print(f"Message ID: {message_id}")
+                        print(f"Status: {message_status}")
+                        
+                        return SendResult(success=True, message_id=message_id)
+                    else:
+                        print(f"\n❌ API ERROR:")
+                        print(f"Status: {response.status}")
+                        print(f"Response: {response_text}")
+                        
+                        # Try to get error details
+                        if 'error' in response_data:
+                            error_info = response_data['error']
+                            error_msg = f"API Error {error_info.get('code', 'unknown')}: {error_info.get('message', 'unknown error')}"
+                        else:
+                            error_msg = f"HTTP {response.status}: {response_text}"
+                        
+                        return SendResult(success=False, error=error_msg)
+                        
+        except asyncio.TimeoutError:
+            print(f"❌ Timeout error")
+            return SendResult(success=False, error="Request timeout")
+        except aiohttp.ClientError as e:
+            print(f"❌ HTTP client error: {str(e)}")
+            return SendResult(success=False, error=f"HTTP client error: {str(e)}")
         except Exception as e:
             print(f"❌ Unexpected error: {str(e)}")
             return SendResult(success=False, error=str(e))
@@ -181,3 +187,20 @@ class WhatsAppProvider(MessageProvider):
             return clean_content
         
         return content.strip()
+
+    # Keep synchronous version for backward compatibility if needed
+    def send_sync(self, recipient: str, content: str, metadata: Dict[str, Any] = None) -> SendResult:
+        """Synchronous wrapper for async send method"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                raise RuntimeError("Cannot use send_sync in an async context. Use send() instead.")
+            return loop.run_until_complete(self.send(recipient, content, metadata))
+        except RuntimeError:
+            # Create new event loop if needed
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.send(recipient, content, metadata))
+            finally:
+                loop.close()

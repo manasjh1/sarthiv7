@@ -21,7 +21,7 @@ class Stage0(BaseStage):
             raise HTTPException(status_code=500, detail="Stage 0 prompt not found in database")
         return stage.prompt
     
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """Create new reflection and move to stage 1"""
         # Create new reflection for stage 0
         new_reflection = Reflection(

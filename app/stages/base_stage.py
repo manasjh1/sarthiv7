@@ -10,8 +10,8 @@ class BaseStage(ABC):
         self.db = db
     
     @abstractmethod
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
-        """Process the stage request and return response"""
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+        """Process the stage request and return response - NOW ASYNC"""
         pass
     
     @abstractmethod

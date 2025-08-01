@@ -23,7 +23,7 @@ class StageMinus1(BaseStage):
         # Return the prompt from database, fallback to stage_name if prompt is empty
         return stage.prompt if stage.prompt else f"Crisis mode: {stage.stage_name}"
     
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """
         Process distress stage - User is in crisis mode
         Gets prompt from database (stage_no = -1)

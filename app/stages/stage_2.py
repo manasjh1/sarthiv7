@@ -42,7 +42,7 @@ class Stage2(BaseStage):
         else:
             return f"Please proceed with {next_stage.stage_name}"
     
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """Process name input - NO distress detection here (handled by stage_handler)"""
         reflection_id = uuid.UUID(request.reflection_id)
         

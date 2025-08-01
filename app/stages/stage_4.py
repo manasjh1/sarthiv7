@@ -4,7 +4,7 @@ from app.models import Reflection, Message, CategoryDict
 from fastapi import HTTPException
 from app.memory import get_buffer_memory
 import uuid
-from openai import OpenAI
+from openai import AsyncOpenAI
 import json
 import os
 from datetime import datetime
@@ -17,20 +17,12 @@ class Stage4(BaseStage):
     - Plain text format: All user messages sent as plain text (consistent with history)
     - Backend message: User input count sent as separate system message
     - Turn limit management: Enforces 6-turn conversation limit
-    
-    Message Format:
-    - User messages: Plain text (consistent with history)
-    - Backend message: Separate system message with just the number
-    
-    Example:
-    User says "hi" (3rd message) → LLM receives:
-    {"role": "user", "content": "hi"}
-    {"role": "system", "content": "3"}  // Backend message with count
+    - ASYNC: All OpenAI API calls are now asynchronous
     """
 
     def __init__(self, db):
         super().__init__(db)
-        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     def get_stage_number(self) -> int:
         return 4
@@ -41,12 +33,6 @@ class Stage4(BaseStage):
     def get_system_prompt(self, reflection_id: uuid.UUID) -> str:
         """
         Get system prompt from CategoryDict table based on reflection's category
-        
-        Args:
-            reflection_id: The reflection ID
-            
-        Returns:
-            System prompt string from database
         """
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id
@@ -66,24 +52,12 @@ class Stage4(BaseStage):
     def get_user_input_count(self, history: list) -> int:
         """
         Simple count of user messages in the conversation
-        
-        Args:
-            history: Conversation history
-            
-        Returns:
-            Number of user inputs + 1 (for current message)
         """
         return len([msg for msg in history if msg["role"] == "user"]) + 1
 
-    def generate_llm_response(self, system_prompt: str, history: list, user_input: str, backend_message: str = None) -> tuple[str, str | None]:
+    async def generate_llm_response(self, system_prompt: str, history: list, user_input: str, backend_message: str = None) -> tuple[str, str | None]:
         """
-        Generate LLM response with user message as plain text and backend message separately
-        
-        Args:
-            system_prompt: System prompt for the conversation
-            history: Conversation history
-            user_input: User's message
-            backend_message: Not used - only count is sent
+        Generate LLM response asynchronously
         """
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
@@ -91,7 +65,6 @@ class Stage4(BaseStage):
         # Add user message as plain text (consistent with history)
         messages.append({"role": "user", "content": user_input})
         
-
         user_count = self.get_user_input_count(history)
         backend_message_content = str(user_count)
         
@@ -101,7 +74,8 @@ class Stage4(BaseStage):
         })
 
         try:
-            response = self.openai_client.chat.completions.create(
+            # ASYNC OpenAI call
+            response = await self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages
             )
@@ -131,16 +105,9 @@ class Stage4(BaseStage):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"LLM Error: {str(e)}")
 
-    def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """
-        Main processing method for Stage 4 conversations
-        
-        Args:
-            request: Universal request object
-            user_id: User ID
-            
-        Returns:
-            Universal response object
+        Main processing method for Stage 4 conversations - NOW ASYNC
         """
         reflection_id = uuid.UUID(request.reflection_id)
         user_message = request.message.strip()
@@ -156,7 +123,11 @@ class Stage4(BaseStage):
 
         if edit_mode == "edit":
             from distress_detection import DistressDetector
-            distress = DistressDetector().check(user_message)
+            distress_detector = DistressDetector()
+            
+            # ASYNC distress check
+            distress = await distress_detector.check(user_message)
+            await distress_detector.close()  # Clean up async client
 
             if distress == 1:
                 raise HTTPException(status_code=400, detail="Distress detected in custom message")
@@ -179,7 +150,9 @@ class Stage4(BaseStage):
         elif edit_mode == "regenerate":
             history = get_buffer_memory(self.db, reflection_id, stage_no=4)
             system_prompt = self.get_system_prompt(reflection_id)
-            flag, assistant_reply = self.generate_llm_response(system_prompt, history, "regenerate summary")
+            
+            # ASYNC LLM call
+            flag, assistant_reply = await self.generate_llm_response(system_prompt, history, "regenerate summary")
 
             if assistant_reply and assistant_reply.startswith("{"):
                 try:
@@ -221,9 +194,9 @@ class Stage4(BaseStage):
         if any("__DONE__" in msg["content"] for msg in history if msg["role"] == "assistant"):
             raise HTTPException(status_code=400, detail="Conversation already marked complete")
 
-        # Generate LLM response with backend message (user count)
+        # ASYNC LLM response generation
         system_prompt = self.get_system_prompt(reflection_id)
-        flag, assistant_reply = self.generate_llm_response(
+        flag, assistant_reply = await self.generate_llm_response(
             system_prompt, 
             history, 
             user_message
@@ -293,3 +266,7 @@ class Stage4(BaseStage):
             ),
             data=response_data
         )
+
+    async def close(self):
+        """Close async OpenAI client"""
+        await self.openai_client.close()

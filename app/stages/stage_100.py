@@ -16,7 +16,8 @@ class Stage100:
         self.whatsapp_provider = WhatsAppProvider()
         self.auth_manager = AuthManager()  
 
-    def handle(self, request: UniversalRequest, user_id: str) -> UniversalResponse:
+    async def handle(self, request: UniversalRequest, user_id: str) -> UniversalResponse:
+        """Main Stage 100 handler - NOW ASYNC"""
         try:
             reflection_id = request.reflection_id
             if not reflection_id:
@@ -71,7 +72,7 @@ class Stage100:
             # Check for THIRD-PARTY email delivery (sending reflection TO someone else)
             third_party_email = next((item.get("email") for item in request.data if "email" in item), None)
             if third_party_email:
-                return self._handle_third_party_email_delivery(reflection_id, user_id, third_party_email)
+                return await self._handle_third_party_email_delivery(reflection_id, user_id, third_party_email)
 
             # Extract user choices from request data
             reveal_choice = next((item.get("reveal_name") for item in request.data if "reveal_name" in item), None)
@@ -173,8 +174,8 @@ class Stage100:
             reflection.delivery_mode = delivery_mode
             self.db.commit()
 
-            # Handle actual delivery
-            delivery_result = self._handle_standard_delivery(delivery_mode, user, reflection.reflection)
+            # Handle actual delivery - ASYNC
+            delivery_result = await self._handle_standard_delivery(delivery_mode, user, reflection.reflection)
             
             # After delivery, show feedback options
             return self._show_feedback_options_after_delivery(reflection_id, delivery_result)
@@ -187,8 +188,8 @@ class Stage100:
             print(f"Stage 100 error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Stage 100 processing failed: {str(e)}")
 
-    def _handle_third_party_email_delivery(self, reflection_id: uuid.UUID, user_id: uuid.UUID, recipient_email: str) -> UniversalResponse:
-        """Handle sending reflection TO someone else's email (third-party delivery)"""
+    async def _handle_third_party_email_delivery(self, reflection_id: uuid.UUID, user_id: uuid.UUID, recipient_email: str) -> UniversalResponse:
+        """Handle sending reflection TO someone else's email (third-party delivery) - ASYNC"""
         try:
             reflection = self.db.query(Reflection).filter(
                 Reflection.reflection_id == reflection_id,
@@ -212,8 +213,8 @@ class Stage100:
             else:
                 sender_name = "Anonymous"
 
-            # Send reflection to third party email
-            result = self.auth_manager.send_feedback_email(
+            # Send reflection to third party email - ASYNC
+            result = await self.auth_manager.send_feedback_email(
                 sender_name=sender_name,
                 receiver_name=reflection.name or "Recipient",
                 receiver_email=recipient_email,
@@ -234,8 +235,8 @@ class Stage100:
             print(f"Third-party email delivery failed: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to send to third party: {str(e)}")
 
-    def _handle_standard_delivery(self, delivery_mode: int, user: User, summary: str) -> dict:
-        """Handle standard delivery modes (email to user, WhatsApp, private)"""
+    async def _handle_standard_delivery(self, delivery_mode: int, user: User, summary: str) -> dict:
+        """Handle standard delivery modes (email to user, WhatsApp, private) - ASYNC"""
         delivery_status = []
         
         try:
@@ -247,7 +248,10 @@ class Stage100:
                     "subject": "Your Sarthi Reflection Summary",
                     "recipient_name": user.name or "User"
                 }
-                self.email_provider.send(user.email, summary, metadata)
+                result = await self.email_provider.send(user.email, summary, metadata)
+                if not result.success:
+                    raise HTTPException(status_code=500, detail=f"Email sending failed: {result.error}")
+                    
                 delivery_status.append("email_sent")
                 message = "Your message has been sent via email successfully! 📧"
                 
@@ -255,7 +259,10 @@ class Stage100:
                 if not user.phone_number:
                     raise HTTPException(status_code=400, detail="User phone number not available")
                 
-                self.whatsapp_provider.send(str(user.phone_number), summary)
+                result = await self.whatsapp_provider.send(str(user.phone_number), summary)
+                if not result.success:
+                    raise HTTPException(status_code=500, detail=f"WhatsApp sending failed: {result.error}")
+                    
                 delivery_status.append("whatsapp_sent")
                 message = "Your message has been sent via WhatsApp successfully! 📱"
                 
@@ -268,17 +275,23 @@ class Stage100:
                             "subject": "Your Sarthi Reflection Summary",
                             "recipient_name": user.name or "User"
                         }
-                        self.email_provider.send(user.email, summary, metadata)
-                        delivery_status.append("email_sent")
-                        sent_methods.append("email")
+                        result = await self.email_provider.send(user.email, summary, metadata)
+                        if result.success:
+                            delivery_status.append("email_sent")
+                            sent_methods.append("email")
+                        else:
+                            print(f"Email sending failed: {result.error}")
                     except Exception as e:
                         print(f"Email sending failed: {str(e)}")
                 
                 if user.phone_number:
                     try:
-                        self.whatsapp_provider.send(str(user.phone_number), summary)
-                        delivery_status.append("whatsapp_sent")
-                        sent_methods.append("WhatsApp")
+                        result = await self.whatsapp_provider.send(str(user.phone_number), summary)
+                        if result.success:
+                            delivery_status.append("whatsapp_sent")
+                            sent_methods.append("WhatsApp")
+                        else:
+                            print(f"WhatsApp sending failed: {result.error}")
                     except Exception as e:
                         print(f"WhatsApp sending failed: {str(e)}")
                 
@@ -296,6 +309,8 @@ class Stage100:
                 "message": message
             }
             
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"Delivery failed: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Message delivery failed: {str(e)}")

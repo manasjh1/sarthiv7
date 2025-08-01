@@ -10,14 +10,14 @@ class SendResult:
     error: str = None
 
 class MessageProvider(ABC):
-    """Abstract base class for all messaging providers"""
+    """Abstract base class for all messaging providers - now async"""
     
     @abstractmethod
-    def send(self, recipient: str, content: str, metadata: Dict[str, Any] = None) -> SendResult:
-        """Send message to recipient"""
+    async def send(self, recipient: str, content: str, metadata: Dict[str, Any] = None) -> SendResult:
+        """Send message to recipient asynchronously"""
         pass
     
     @abstractmethod
     def validate_recipient(self, recipient: str) -> bool:
-        """Validate recipient format"""
+        """Validate recipient format (synchronous)"""
         pass

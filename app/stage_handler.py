@@ -11,16 +11,16 @@ from app.stages.stage_minus_1 import StageMinus1
 from distress_detection import DistressDetector
 
 class StageHandler:
-    """Database-driven stage handling with centralized distress detection for all stages"""
+    """Database-driven stage handling with centralized ASYNC distress detection for all stages"""
 
     def __init__(self, db: Session):
         self.db = db
         self.distress_detector = DistressDetector()
 
-    def check_distress(self, message: str) -> int:
-        """Check distress only on user messages"""
+    async def check_distress(self, message: str) -> int:
+        """Check distress asynchronously - only on user messages"""
         try:
-            return self.distress_detector.check(message)
+            return await self.distress_detector.check(message)
         except Exception as e:
             print(f"Distress detection error: {str(e)}")
             return 0
@@ -36,7 +36,7 @@ class StageHandler:
 
         return stage.prompt or f"Please proceed with {stage.stage_name}"
 
-    def handle_distress_redirect(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID, current_stage: int) -> UniversalResponse:
+    async def handle_distress_redirect(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID, current_stage: int) -> UniversalResponse:
         """ 
         Redirect user to stage -1 (distress stage) when critical distress is detected
         """
@@ -54,9 +54,9 @@ class StageHandler:
         distress_stage = StageMinus1(self.db)
         return distress_stage.process(request, user_id)   
 
-    def process_request(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process_request(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """
-        Main entry point with centralized distress detection
+        Main entry point with centralized ASYNC distress detection
         """
         try:
             if not request.reflection_id:
@@ -77,20 +77,22 @@ class StageHandler:
             if edit_mode in ["regenerate", "edit"]:
                 print(f"Edit mode '{edit_mode}' detected - routing to Stage4 regardless of current stage {current_stage}")
                 stage = Stage4(self.db)
-                return stage.process(request, user_id)
+                response = await stage.process(request, user_id)
+                await stage.close()  # Clean up async client
+                return response
             
             # Handle Stage 100 (delivery mode selection, feedback email, and feedback collection)
             if current_stage == 100:
                 print("Stage 100 - handling identity reveal, delivery, and feedback collection")
                 stage = Stage100(self.db)
-                return stage.handle(request, user_id)
+                return await stage.handle(request, user_id)
             
             # Handle Stage 4 completion/continuation
             if current_stage == 4:
                 print("Stage 4 - checking for completion or continuation")
-                return self.handle_stage4_completion(reflection_id, request, user_id)
+                return await self.handle_stage4_completion(reflection_id, request, user_id)
             
-            # ================CENTRALIZED DISTRESS DETECTION==================#
+            # ================CENTRALIZED ASYNC DISTRESS DETECTION==================#
             target_stage = current_stage + 1
             distress_level = 0
             
@@ -99,11 +101,11 @@ class StageHandler:
                 distress_level = 0        
             elif target_stage in [2, 3, 4]: 
                 print(f"Checking distress for stage {target_stage}")
-                distress_level = self.check_distress(request.message)
+                distress_level = await self.check_distress(request.message)  # ASYNC CALL
                    
                 if distress_level == 1:
                     print(f"Critical distress detected in stage {target_stage}, redirecting to Stage -1")
-                    return self.handle_distress_redirect(reflection_id, request, user_id, target_stage)
+                    return await self.handle_distress_redirect(reflection_id, request, user_id, target_stage)
                 
                 print(f"No distress detected (level: {distress_level}), continuing to stage {target_stage}")
             else:
@@ -119,7 +121,7 @@ class StageHandler:
             elif target_stage == 3:
                 return self.process_relationship_stage(reflection_id, request, user_id)
             elif target_stage == 4:
-                return self.process_conversation_stage(reflection_id, request, user_id)
+                return await self.process_conversation_stage(reflection_id, request, user_id)
             else:
                 raise HTTPException(status_code=400, detail="Workflow completed")
         
@@ -130,6 +132,12 @@ class StageHandler:
         except Exception as e:
             print(f"Unexpected error in process_request: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        finally:
+            # Always clean up async distress detector
+            try:
+                await self.distress_detector.close()
+            except Exception as e:
+                print(f"Error closing distress detector: {str(e)}")
     
     def get_current_stage(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> int:
         """Get current stage from reflection"""
@@ -316,15 +324,16 @@ class StageHandler:
             data=[{"distress_level": 0}]  
         )
 
-    def process_conversation_stage(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+    async def process_conversation_stage(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
         """
-        Process conversation - Stage 4 (distress already checked)
+        Process conversation - Stage 4 (distress already checked) - NOW ASYNC
         """
         
         print("Processing conversation stage - distress already checked")
         
         stage = Stage4(self.db)
-        response = stage.process(request, user_id)
+        response = await stage.process(request, user_id)  # ASYNC CALL
+        await stage.close()  # Clean up async client
         
         # Check for edit_mode to handle regenerate/edit differently
         edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
@@ -374,9 +383,9 @@ class StageHandler:
                 
         return response     
     
-    def handle_stage4_completion(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:  
+    async def handle_stage4_completion(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:  
         """
-        Handle stage 4 completion and transition to Stage 100
+        Handle stage 4 completion and transition to Stage 100 - NOW ASYNC
         This handles when user is in stage 4 and the conversation might be completed
         """
         print("Handling Stage 4 completion/continuation")
@@ -400,10 +409,10 @@ class StageHandler:
             
             # Let Stage 100 handle identity reveal, delivery, and feedback
             stage100 = Stage100(self.db)
-            return stage100.handle(request, user_id)
+            return await stage100.handle(request, user_id)  # ASYNC CALL
         else:
             print("No summary yet, continuing Stage 4 conversation")
-            return self.process_conversation_stage(reflection_id, request, user_id)
+            return await self.process_conversation_stage(reflection_id, request, user_id)  # ASYNC CALL
 
     def get_completion_message(self, name: str, relation: str) -> str:
         """Get completion message from database"""
