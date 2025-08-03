@@ -148,51 +148,55 @@ class AuthStorage:
     def transfer_to_database(self, contact: str, user_id: uuid.UUID, invite_id: str, db: Session) -> Tuple[bool, str]:
         """Transfer OTP from memory to database and mark invite as used (email and WhatsApp)"""
         try:
-            normalized_contact = self._normalize_contact(contact)
+            user_id_str = str(user_id)
             
-            # Get OTP from memory
-            if normalized_contact not in new_user_otps:
+            if contact not in new_user_otps:
                 return False, "No OTP found for this contact"
-            
-            stored_otp_data = new_user_otps[normalized_contact]
-            
+                
+            stored_otp_data = new_user_otps[contact]
+
             try:
                 # Move OTP from memory to database
                 otp_token = OTPToken(
-                    user_id=user_id,
+                    user_id=user_id,  # Keep as UUID for Database
                     otp=stored_otp_data['otp'],
                     created_at=stored_otp_data['created_at']
                 )
                 db.add(otp_token)
                 db.flush()
-                
+
                 # Mark invite code as used
                 invite = db.query(InviteCode).filter(InviteCode.invite_id == invite_id).first()
                 if invite:
                     invite.is_used = True
                     invite.user_id = user_id
                     invite.used_at = datetime.utcnow()
-                
+                    
+
                 # Delete from memory
-                del new_user_otps[normalized_contact]
-                
+                del new_user_otps[contact]
+
                 db.commit()
-                
-                logging.info(f"OTP transferred to database for user {user_id}, invite {invite_id} marked as used")
+
+                # Use string version in logging
+                logging.info(f"OTP transferred to database for user {user_id_str}, invite {invite_id} marked as used")
                 return True, "OTP verified successfully"
-                
+            
             except SQLAlchemyError as db_error:
                 db.rollback()
-                logging.error(f"Database error during OTP transfer for user {user_id}: {str(db_error)}")
+                # Convert UUID to string for safe logging
+                logging.error(f"Database error during OTP transfer for user {user_id_str}: {str(db_error)}")
                 return False, "Failed to complete verification process"
-                
+            
         except Exception as e:
-            logging.error(f"Error transferring OTP for {contact}: {str(e)}")
+            # convert UUID to string for safe logging 
+            user_id_str = str(user_id) if user_id else "unknown"
+            logging.error(f"Error transferring OTP for {contact}, user {user_id_str}: {str(e)}")
             try:
                 db.rollback()
             except:
                 pass
-            return False, "Verification failed"
+            return False, "Verification Failed"
     
     def _normalize_contact(self, contact: str) -> str:
         """Normalize contact for consistent storage (email lowercase, phone as-is)"""

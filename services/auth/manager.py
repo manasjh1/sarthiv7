@@ -50,7 +50,9 @@ class AuthManager:
             # STRICT LOGIC: Handle existing vs new users differently
             if is_existing_user:
                 # ===== EXISTING USER PATH =====
-                logging.info(f"Existing user found for contact: {contact}")
+                # Convert UUID to string for safe logging
+                user_id_str = str(user.user_id)
+                logging.info(f"Existing user found for contact: {contact}, user_id: {user_id_str}")
                 
                 # Generate OTP for existing user
                 otp = self._generate_otp()
@@ -78,7 +80,7 @@ class AuthManager:
                 if not result.success:
                     return AuthResult(success=False, message=f"Failed to send OTP: {result.error}")
                 
-                # Store OTP for existing user
+                # Store OTP for existing user (pass UUID to storage)
                 if not self.storage.store_for_existing_user(user.user_id, otp, db):
                     return AuthResult(success=False, message="Please wait 60 seconds before requesting a new OTP")
                 
@@ -175,6 +177,8 @@ class AuthManager:
             
             if user:
                 # ===== EXISTING USER VERIFICATION =====
+                # Convert UUID to string for safe logging
+                user_id_str = str(user.user_id)
                 success, message = self.storage.verify_for_existing_user(user.user_id, otp, db)
                 if not success:
                     return AuthResult(success=False, message=message)
@@ -182,7 +186,7 @@ class AuthManager:
                 return AuthResult(
                     success=True,
                     message="Welcome back! You have been logged in successfully.",
-                    user_id=str(user.user_id),
+                    user_id=user_id_str,  # Return string version
                     is_new_user=False
                 )
             else:
