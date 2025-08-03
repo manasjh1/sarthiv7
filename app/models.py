@@ -61,7 +61,7 @@ class Reflection(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     reflection = Column(Text, nullable=True)
-    delivery_mode = Column(SmallInteger, default=0)
+    delivery_mode = Column(SmallInteger, default=None, nullable=True) 
     is_anonymous = Column(Boolean, nullable=True, default=None)
     sender_name = Column(String, nullable=True, default=None)
     feedback_type = Column(SmallInteger, ForeignKey("feedback.feedback_no"), default=0)  # Links to feedback table

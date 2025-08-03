@@ -1,9 +1,8 @@
 # app/api/otp.py - UNIFIED FOR EMAIL AND WHATSAPP WITH CONTACT PARAMETER - NOW ASYNC
 
 from fastapi import APIRouter, Depends, Request, HTTPException, status
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import SendOTPRequest, SendOTPResponse, VerifyOTPRequest, VerifyOTPResponse
@@ -22,7 +21,7 @@ auth_manager = AuthManager()
 limiter = Limiter(key_func=get_remote_address)
 
 @router.post("/send-otp", response_model=SendOTPResponse)
-@Limiter.limit("3/minute") # Maximum 3 OTP requests per minute per IP
+@limiter.limit("3/minute") # Maximum 3 OTP requests per minute per IP
 async def send_otp(  # NOW ASYNC
     request: Request, # Required for rate limiting
     otp_request: SendOTPRequest,
@@ -40,7 +39,7 @@ async def send_otp(  # NOW ASYNC
         
         result = await auth_manager.send_otp(  # ASYNC CALL
             contact=contact,
-            invite_token=request.invite_token,
+            invite_token=otp_request.invite_token,
             db=db
         )
         return SendOTPResponse(
