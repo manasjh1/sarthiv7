@@ -10,87 +10,99 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1 — Check out the code
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2 — Start an SSH agent and load the EC2 key **and** a repo-deploy key
+      #     (the repo-deploy key lets the remote host clone your private repo)
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.7.0
         with:
-          ssh-private-key: ${{ secrets.EC2_KEY }}
+          ssh-private-key: |
+            ${{ secrets.EC2_KEY }}
+            ${{ secrets.REPO_DEPLOY_KEY }}   # ← generate & add as a Deploy key
 
+      # 3 — Add the EC2 host to known_hosts so SSH is non-interactive
       - name: Add EC2 host to known-hosts
         run: |
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
+      # 4 — Deploy on the EC2 instance (-A forwards the agent so the repo key works)
       - name: Deploy to EC2
         env:
-          REPO: ${{ github.repository }}
           HOST: ${{ secrets.EC2_HOST }}
           USER: ${{ secrets.EC2_USER }}
+          REPO: ${{ github.repository }}
         run: |
-          ssh "${USER}@${HOST}" << 'EOF'
-            set -e
+          ssh -A "${USER}@${HOST}" <<'EOF'
+            set -euo pipefail
 
-            # Prepare deployment folder
+            # ── Prepare /opt/sarthi ───────────────────────────────────────────────
             sudo mkdir -p /opt/sarthi
-            sudo chown -R $USER:$USER /opt/sarthi
+            sudo chown -R "$USER":"$USER" /opt/sarthi
             cd /opt/sarthi
 
-            # Stop running service
+            # ── Stop running service if any ──────────────────────────────────────
             sudo systemctl stop sarthi || true
 
-            # Backup previous release
-            if [ -d "current" ]; then
+            # ── Backup previous release ──────────────────────────────────────────
+            if [ -d current ]; then
               mv current "backup_$(date +%Y%m%d_%H%M%S)"
             fi
 
-            # Clone repo using SSH (since we added the SSH key)
-            git clone --depth 1 git@github.com:${{ github.repository }}.git current
+            # ── Clone latest code (SSH uses the forwarded deploy key) ────────────
+            git clone --depth 1 git@github.com:${REPO}.git current
             cd current
 
-            # Set up virtual environment
-            python3.12 -m venv venv
+            # ── Python venv & dependencies ──────────────────────────────────────
+            python3 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # Write .env file with secrets
-            cat > .env << ENVEOF
-DATABASE_URL=${{ secrets.DATABASE_URL }}
-JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=1
-OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
-PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
-PINECONE_NAMESPACE=distress
-OPENAI_EMBED_MODEL=text-embedding-3-large
-ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
-ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
-ZEPTOMAIL_FROM_NAME=Sarthi
-WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
-WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
-WHATSAPP_TEMPLATE_NAME=authentication
-ENVEOF
+            # ── Build .env file with secrets ─────────────────────────────────────
+            cat > .env <<'ENVEOF'
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+            JWT_ALGORITHM=HS256
+            JWT_EXPIRATION_HOURS=1
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+            PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
+            PINECONE_NAMESPACE=distress
+            OPENAI_EMBED_MODEL=text-embedding-3-large
+            ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
+            ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
+            ZEPTOMAIL_FROM_NAME=Sarthi
+            WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+            WHATSAPP_TEMPLATE_NAME=authentication
+            ENVEOF
 
             chmod 600 .env
             sudo chown -R ubuntu:ubuntu /opt/sarthi/current
 
-            # Smoke test
-            source venv/bin/activate
-            python -c "from app.main import app; print('✅ App loads successfully')"
+            # ── Smoke-test: the app must import without crashing ─────────────────
+            python - <<'PY'
+            from app.main import app
+            print("✅ FastAPI app imported successfully")
+            PY
           EOF
 
+      # 5 — (Re)start and verify the systemd service
       - name: Start Sarthi service
         run: |
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" <<'EOF'
+            sudo systemctl daemon-reload
             sudo systemctl start sarthi
             sleep 5
             sudo systemctl status sarthi --no-pager
           EOF
 
+      # 6 — Hit the health-check endpoint
       - name: Health check
         run: |
           sleep 10
-          curl -f "http://${{ secrets.EC2_HOST }}/health"
+          curl -fsSL "http://${{ secrets.EC2_HOST }}/health"
           echo "✅ Deployment successful"
