@@ -10,22 +10,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1 – Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2 – Start SSH agent and load key stored in GitHub Secrets
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.7.0
         with:
           ssh-private-key: ${{ secrets.EC2_KEY }}
 
-      # 3 – Trust the EC2 host key
       - name: Add EC2 host to known-hosts
         run: |
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      # 4 – Deploy release on the EC2 instance
       - name: Deploy to EC2
         env:
           REPO: ${{ github.repository }}
@@ -35,57 +31,56 @@ jobs:
           ssh "${USER}@${HOST}" << 'EOF'
             set -e
 
-            # ── Create /opt/sarthi and take ownership ───────────────────────────────
+            # Prepare deployment folder
             sudo mkdir -p /opt/sarthi
             sudo chown -R $USER:$USER /opt/sarthi
             cd /opt/sarthi
 
-            # ── Stop any running instance ───────────────────────────────────────────
+            # Stop running service
             sudo systemctl stop sarthi || true
 
-            # ── Backup previous release ────────────────────────────────────────────
+            # Backup previous release
             if [ -d "current" ]; then
               mv current "backup_$(date +%Y%m%d_%H%M%S)"
             fi
 
-            # ── Fresh clone of main branch ─────────────────────────────────────────
+            # Clone repo using SSH (since we added the SSH key)
             git clone --depth 1 git@github.com:${{ github.repository }}.git current
             cd current
 
-            # ── Python virtual-env & dependencies ─────────────────────────────────
+            # Set up virtual environment
             python3.12 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # ── Generate .env file (secrets expanded here) ─────────────────────────
+            # Write .env file with secrets
             cat > .env << ENVEOF
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
-            JWT_ALGORITHM=HS256
-            JWT_EXPIRATION_HOURS=1
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
-            PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
-            PINECONE_NAMESPACE=distress
-            OPENAI_EMBED_MODEL=text-embedding-3-large
-            ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
-            ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
-            ZEPTOMAIL_FROM_NAME=Sarthi
-            WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
-            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
-            WHATSAPP_TEMPLATE_NAME=authentication
-            ENVEOF
+DATABASE_URL=${{ secrets.DATABASE_URL }}
+JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=1
+OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
+PINECONE_NAMESPACE=distress
+OPENAI_EMBED_MODEL=text-embedding-3-large
+ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
+ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
+ZEPTOMAIL_FROM_NAME=Sarthi
+WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+WHATSAPP_TEMPLATE_NAME=authentication
+ENVEOF
 
             chmod 600 .env
             sudo chown -R ubuntu:ubuntu /opt/sarthi/current
 
-            # ── Smoke-test: make sure the app boots ───────────────────────────────
+            # Smoke test
             source venv/bin/activate
             python -c "from app.main import app; print('✅ App loads successfully')"
           EOF
 
-      # 5 – Start/verify the systemd service
       - name: Start Sarthi service
         run: |
           ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
@@ -94,7 +89,6 @@ jobs:
             sudo systemctl status sarthi --no-pager
           EOF
 
-      # 6 – Health-check endpoint
       - name: Health check
         run: |
           sleep 10
