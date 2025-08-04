@@ -1,0 +1,86 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.EC2_KEY }}
+
+    - name: Add host to known hosts
+      run: |
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to EC2
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+          # Stop service
+          sudo systemctl stop sarthi || true
+          
+          # Backup current deployment
+          cd /opt/sarthi
+          if [ -d "current" ]; then
+            sudo mv current backup_$(date +%Y%m%d_%H%M%S) || true
+          fi
+          
+          # Clone fresh code
+          git clone https://github.com/${{ github.repository }}.git current
+          cd current
+          
+          # Setup environment
+          python3.12 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          
+          # Create production environment
+          cat > .env << EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+          JWT_ALGORITHM=HS256
+          JWT_EXPIRATION_HOURS=24
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+          PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
+          PINECONE_NAMESPACE=distress
+          OPENAI_EMBED_MODEL=text-embedding-3-large
+          ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
+          ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
+          ZEPTOMAIL_FROM_NAME=Sarthi
+          WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_TEMPLATE_NAME=authentication
+          EOF
+          
+          chmod 600 .env
+          sudo chown -R sarthi:sarthi /opt/sarthi/current
+          
+          # Test application
+          source venv/bin/activate
+          python -c "from app.main import app; print(\"✅ App loads successfully\")"
+        '
+
+    - name: Start Services
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+          sudo systemctl start sarthi
+          sleep 5
+          sudo systemctl status sarthi --no-pager
+        '
+
+    - name: Health Check
+      run: |
+        sleep 10
+        curl -f http://${{ secrets.EC2_HOST }}/health || exit 1
+        echo "✅ Deployment successful"
