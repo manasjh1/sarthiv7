@@ -48,8 +48,8 @@ jobs:
               mv current "backup_$(date +%Y%m%d_%H%M%S)"
             fi
 
-            # ✅ Use SSH instead of HTTPS for cloning
-            git clone --depth 1 git@github.com:${REPO}.git current
+            # ── Fresh clone of main branch ─────────────────────────────────────────
+            git clone --depth 1 git@github.com:${{ github.repository }}.git current
             cd current
 
             # ── Python virtual-env & dependencies ─────────────────────────────────
@@ -60,22 +60,22 @@ jobs:
 
             # ── Generate .env file (secrets expanded here) ─────────────────────────
             cat > .env << ENVEOF
-DATABASE_URL=${{ secrets.DATABASE_URL }}
-JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=1
-OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
-PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
-PINECONE_NAMESPACE=distress
-OPENAI_EMBED_MODEL=text-embedding-3-large
-ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
-ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
-ZEPTOMAIL_FROM_NAME=Sarthi
-WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
-WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
-WHATSAPP_TEMPLATE_NAME=authentication
-ENVEOF
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+            JWT_ALGORITHM=HS256
+            JWT_EXPIRATION_HOURS=1
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+            PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
+            PINECONE_NAMESPACE=distress
+            OPENAI_EMBED_MODEL=text-embedding-3-large
+            ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
+            ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
+            ZEPTOMAIL_FROM_NAME=Sarthi
+            WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+            WHATSAPP_TEMPLATE_NAME=authentication
+            ENVEOF
 
             chmod 600 .env
             sudo chown -R ubuntu:ubuntu /opt/sarthi/current
