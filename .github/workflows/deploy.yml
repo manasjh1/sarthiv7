@@ -12,6 +12,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup SSH
       uses: webfactory/ssh-agent@v0.7.0
@@ -40,9 +42,23 @@ jobs:
             mv current backup_$(date +%Y%m%d_%H%M%S)
           fi
 
-          # Clone fresh code (using HTTPS, not SSH)
-          git clone --depth 1 https://github.com/${{ github.repository }}.git current
-          cd current
+          # Create temporary directory
+          mkdir -p /tmp/sarthi-code
+        '
+
+        # Transfer code from GitHub Actions to EC2
+        rsync -avz --delete \
+          --exclude='.git' \
+          --exclude='venv' \
+          --exclude='__pycache__' \
+          --exclude='.env' \
+          ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/sarthi-code/
+
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+          # Move code to application directory
+          cp -r /tmp/sarthi-code /opt/sarthi/current
+          rm -rf /tmp/sarthi-code
+          cd /opt/sarthi/current
 
           # Create Python virtual environment
           python3.12 -m venv venv
