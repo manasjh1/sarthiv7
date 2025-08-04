@@ -24,23 +24,23 @@ jobs:
 
     - name: Deploy to EC2
       run: |
-        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} <<'SSH'
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
 
-          # Ensure deployment directory and permissions
           sudo mkdir -p /opt/sarthi
           sudo chown -R $USER:$USER /opt/sarthi
 
           # Stop service if running
           sudo systemctl stop sarthi || true
 
-          # Backup old code
           cd /opt/sarthi
+
+          # Backup existing deployment
           if [ -d "current" ]; then
             mv current backup_$(date +%Y%m%d_%H%M%S)
           fi
 
-          # Clone new code
+          # Clone latest code
           git clone https://github.com/${{ github.repository }}.git current
           cd current
 
@@ -50,38 +50,40 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-          # Create .env file line-by-line
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
-          echo "JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}" >> .env
-          echo "JWT_ALGORITHM=HS256" >> .env
-          echo "JWT_EXPIRATION_HOURS=24" >> .env
-          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
-          echo "PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}" >> .env
-          echo "PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}" >> .env
-          echo "PINECONE_NAMESPACE=distress" >> .env
-          echo "OPENAI_EMBED_MODEL=text-embedding-3-large" >> .env
-          echo "ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}" >> .env
-          echo "ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}" >> .env
-          echo "ZEPTOMAIL_FROM_NAME=Sarthi" >> .env
-          echo "WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}" >> .env
-          echo "WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}" >> .env
-          echo "WHATSAPP_TEMPLATE_NAME=authentication" >> .env
+          # Create .env file
+          cat > .env << EOL
+DATABASE_URL=${{ secrets.DATABASE_URL }}
+JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=24
+OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
+PINECONE_NAMESPACE=distress
+OPENAI_EMBED_MODEL=text-embedding-3-large
+ZEPTOMAIL_TOKEN=${{ secrets.ZEPTOMAIL_TOKEN }}
+ZEPTOMAIL_FROM_DOMAIN=noreply@${{ secrets.DOMAIN_NAME }}
+ZEPTOMAIL_FROM_NAME=Sarthi
+WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+WHATSAPP_TEMPLATE_NAME=authentication
+EOL
 
           chmod 600 .env
           sudo chown -R ubuntu:ubuntu /opt/sarthi/current
 
-          # Test app import
+          # Test application
           source venv/bin/activate
           python -c "from app.main import app; print('✅ App loads successfully')"
-SSH
+        EOF
 
     - name: Start Services
       run: |
-        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
           sudo systemctl start sarthi
           sleep 5
           sudo systemctl status sarthi --no-pager
-        '
+        EOF
 
     - name: Health Check
       run: |
