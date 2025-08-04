@@ -14,6 +14,7 @@ import logging
 class Stage100:
     """
     Stage 100: Identity Reveal, Delivery Mode Selection, Message Delivery, and Feedback Collection
+    FIXED: No duplicate summary display and no syntax errors
     """
 
     def __init__(self, db):
@@ -26,17 +27,7 @@ class Stage100:
 
     async def handle(self, request: UniversalRequest, user_id: str) -> UniversalResponse:
         """
-        Main Stage 100 handler - Production Implementation
-        
-        Args:
-            request: UniversalRequest containing user input and data
-            user_id: UUID of the current user
-            
-        Returns:
-            UniversalResponse with appropriate stage flow response
-            
-        Raises:
-            HTTPException: For various error conditions
+        Main Stage 100 handler - FIXED: No duplicate summary display
         """
         try:
             # Input validation and conversion
@@ -166,9 +157,7 @@ class Stage100:
     def _get_identity_status(self, reflection: Reflection, user: User, choices: Dict[str, Any]) -> Dict[str, Any]:
         """
         Determine identity reveal status and return appropriate response
-        
-        Returns:
-            dict: Contains 'decided' (bool), 'needs_input' (bool), and optionally 'response'
+        FIXED: No duplicate summary in response messages
         """
         # Check if identity has already been decided
         identity_decided = (
@@ -204,7 +193,7 @@ class Stage100:
                     self.logger.info(f"User provided name '{provided_name}' for reflection {reflection.reflection_id}")
                     return {'decided': True, 'needs_input': False}
                 else:
-                    # Ask for name input
+                    # Ask for name input - NO SUMMARY SHOWN
                     default_name = user.name if user.name else ""
                     response = UniversalResponse(
                         success=True,
@@ -231,7 +220,7 @@ class Stage100:
             self.logger.info(f"User provided name '{provided_name}' for reflection {reflection.reflection_id}")
             return {'decided': True, 'needs_input': False}
         
-        # If identity still not decided, ask for it
+        # If identity still not decided, ask for it - NO SUMMARY SHOWN
         if not identity_decided:
             response = UniversalResponse(
                 success=True,
@@ -252,7 +241,7 @@ class Stage100:
         return {'decided': True, 'needs_input': False}
 
     def _show_delivery_options(self, reflection_id: uuid.UUID, reflection: Reflection) -> UniversalResponse:
-        """Show delivery mode options to user"""
+        """Show delivery mode options to user - FIXED: No summary duplication"""
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
@@ -304,17 +293,7 @@ class Stage100:
         return self._show_feedback_options_after_delivery(reflection_id, delivery_result)
 
     async def _handle_standard_delivery(self, delivery_mode: int, user: User, summary: str) -> Dict[str, Any]:
-        """
-        Handle standard delivery modes with comprehensive error handling and logging
-        
-        Args:
-            delivery_mode: 0=Email, 1=WhatsApp, 2=Both, 3=Private
-            user: User object
-            summary: Reflection summary to send
-            
-        Returns:
-            dict: Contains 'status' list and 'message' string
-        """
+        """Handle standard delivery modes with comprehensive error handling and logging"""
         delivery_status = []
         
         try:

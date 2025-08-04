@@ -213,30 +213,31 @@ class Stage4(BaseStage):
         ))
 
         summary_data = None
-        
+        sarthi_response = ""  # Initialize as None
+
         # Handle conversation completion and summary generation
         if is_done and assistant_reply and assistant_reply.startswith("{"):
             try:
                 summary_json = json.loads(assistant_reply)
                 if "user" in summary_json:
+                    # Save summary
                     reflection.reflection = summary_json["user"]
                     reflection.updated_at = datetime.utcnow()
                     self.db.commit()
-                    
-                    summary_text = summary_json["user"]
-                    
+
                     summary_data = {
-                        "summary": summary_text
+                        "summary": summary_json["user"]
                     }
-                    sarthi_response = (
-                "Thanks for sharing all that. I've got everything I need — let's shape your message next. 💬"
-            )
+                    # Do not set sarthi_response here — summary should only go to data
                 else:
+                    # If it's JSON but not a summary
                     sarthi_response = assistant_reply
             except json.JSONDecodeError:
+                # Invalid JSON → treat as normal text
                 sarthi_response = assistant_reply
+
         elif assistant_reply:
-            # Store AI response in database
+            # Normal assistant message → store and show
             self.db.add(Message(
                 text=assistant_reply,
                 reflection_id=reflection_id,
@@ -249,9 +250,7 @@ class Stage4(BaseStage):
 
         self.db.commit()
 
-        response_data = []
-        if summary_data:
-            response_data = [summary_data]
+        response_data = [summary_data] if summary_data else []
 
         return UniversalResponse(
             success=True,

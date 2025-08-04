@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include all routers
 app.include_router(invite.router)
 app.include_router(otp.router)
 app.include_router(user.router)

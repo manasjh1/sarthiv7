@@ -1,4 +1,4 @@
-# app/stage_handler.py - Production Level Complete Implementation
+# app/stage_handler.py - FIXED - No Duplicate Summary Display
 
 from typing import List, Optional, Dict, Any
 import uuid
@@ -17,44 +17,17 @@ import logging
 class StageHandler:
     """
     Production-level Stage Handler with centralized async distress detection
-    
-    This class manages the flow between different stages of the reflection process:
-    - Stage 0: Category selection
-    - Stage 1: Category confirmation 
-    - Stage 2: Name input
-    - Stage 3: Relationship input
-    - Stage 4: Conversation and summary generation
-    - Stage 100: Identity reveal, delivery, and feedback
-    - Stage -1: Distress handling
-    
-    Features:
-    - Centralized distress detection for stages 2, 3, 4
-    - Robust error handling and logging
-    - Production-level validation
-    - Clean separation of concerns
+    FIXED: No duplicate summary display between Stage 4 and Stage 100
     """
 
     def __init__(self, db: Session):
-        """
-        Initialize Stage Handler
-        
-        Args:
-            db: Database session
-        """
+        """Initialize Stage Handler"""
         self.db = db
         self.distress_detector = DistressDetector()
         self.logger = logging.getLogger(__name__)
 
     async def check_distress(self, message: str) -> int:
-        """
-        Check distress level asynchronously - only on user messages
-        
-        Args:
-            message: User message to analyze
-            
-        Returns:
-            int: Distress level (0=no distress, 1=critical distress)
-        """
+        """Check distress level asynchronously - only on user messages"""
         try:
             return await self.distress_detector.check(message)
         except Exception as e:
@@ -62,18 +35,7 @@ class StageHandler:
             return 0  # Default to no distress on error
 
     def get_stage_prompt(self, stage_no: int) -> str:
-        """
-        Get stage prompt from database
-        
-        Args:
-            stage_no: Stage number
-            
-        Returns:
-            str: Stage prompt text
-            
-        Raises:
-            HTTPException: If stage not found
-        """
+        """Get stage prompt from database"""
         stage = self.db.query(StageDict).filter(
             StageDict.stage_no == stage_no,
             StageDict.status == 1
@@ -92,18 +54,7 @@ class StageHandler:
         user_id: uuid.UUID, 
         current_stage: int
     ) -> UniversalResponse:
-        """
-        Redirect user to stage -1 (distress stage) when critical distress is detected
-        
-        Args:
-            reflection_id: UUID of the reflection
-            request: User request
-            user_id: UUID of the user
-            current_stage: Current stage number
-            
-        Returns:
-            UniversalResponse: Distress stage response
-        """
+        """Redirect user to stage -1 (distress stage) when critical distress is detected"""
         self.logger.warning(f"Redirecting user {user_id} to distress stage from stage {current_stage}")
         
         try:
@@ -124,19 +75,7 @@ class StageHandler:
             raise HTTPException(status_code=500, detail="Error handling distress situation")
 
     async def process_request(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
-        """
-        Main entry point with centralized async distress detection
-        
-        Args:
-            request: Universal request from user
-            user_id: UUID of the user
-            
-        Returns:
-            UniversalResponse: Appropriate response based on stage
-            
-        Raises:
-            HTTPException: For various error conditions
-        """
+        """Main entry point with centralized async distress detection"""
         try:
             # Handle new reflection creation
             if not request.reflection_id:
@@ -190,8 +129,6 @@ class StageHandler:
             else:
                 self.logger.debug(f"Stage {target_stage} does not require distress checking")
             
-            # ================================================================
-            
             # Route to appropriate stage
             return await self._route_to_stage(target_stage, reflection_id, request, user_id, distress_level)
         
@@ -231,19 +168,7 @@ class StageHandler:
         user_id: uuid.UUID,
         distress_level: int
     ) -> UniversalResponse:
-        """
-        Route request to appropriate stage handler
-        
-        Args:
-            target_stage: Target stage number
-            reflection_id: Reflection UUID
-            request: User request
-            user_id: User UUID
-            distress_level: Detected distress level
-            
-        Returns:
-            UniversalResponse: Stage-specific response
-        """
+        """Route request to appropriate stage handler"""
         if target_stage == 1:
             return self.process_category_stage(reflection_id, request, user_id)
         elif target_stage == 2:
@@ -257,19 +182,7 @@ class StageHandler:
             raise HTTPException(status_code=400, detail="Workflow completed or invalid stage")
     
     def get_current_stage(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> int:
-        """
-        Get current stage from reflection
-        
-        Args:
-            reflection_id: Reflection UUID
-            user_id: User UUID
-            
-        Returns:
-            int: Current stage number
-            
-        Raises:
-            HTTPException: If reflection not found
-        """
+        """Get current stage from reflection"""
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id,
             Reflection.giver_user_id == user_id
@@ -282,19 +195,7 @@ class StageHandler:
         return reflection.stage_no
 
     def create_new_reflection(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
-        """
-        Create new reflection and return categories
-        
-        Args:
-            request: User request
-            user_id: User UUID
-            
-        Returns:
-            UniversalResponse: Categories selection response
-            
-        Raises:
-            HTTPException: If no categories found
-        """
+        """Create new reflection and return categories"""
         try:
             new_reflection = Reflection(
                 giver_user_id=user_id,
@@ -337,20 +238,7 @@ class StageHandler:
             raise HTTPException(status_code=500, detail="Failed to create new reflection")
 
     def process_category_stage(self, reflection_id: uuid.UUID, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
-        """
-        Process category selection - Stage 1
-        
-        Args:
-            reflection_id: Reflection UUID
-            request: User request
-            user_id: User UUID
-            
-        Returns:
-            UniversalResponse: Stage 2 transition response
-            
-        Raises:
-            HTTPException: For validation errors
-        """
+        """Process category selection - Stage 1"""
         try:
             reflection = self._get_reflection(reflection_id, user_id)
 
@@ -421,18 +309,7 @@ class StageHandler:
         user_id: uuid.UUID,
         distress_level: int = 0
     ) -> UniversalResponse:
-        """
-        Process name input - Stage 2 (distress already checked)
-        
-        Args:
-            reflection_id: Reflection UUID
-            request: User request
-            user_id: User UUID
-            distress_level: Pre-checked distress level
-            
-        Returns:
-            UniversalResponse: Stage 3 transition response
-        """
+        """Process name input - Stage 2 (distress already checked)"""
         try:
             reflection = self._get_reflection(reflection_id, user_id)
 
@@ -477,18 +354,7 @@ class StageHandler:
         user_id: uuid.UUID,
         distress_level: int = 0
     ) -> UniversalResponse:
-        """
-        Process relationship input - Stage 3 (distress already checked)
-        
-        Args:
-            reflection_id: Reflection UUID
-            request: User request
-            user_id: User UUID
-            distress_level: Pre-checked distress level
-            
-        Returns:
-            UniversalResponse: Stage 4 transition response
-        """
+        """Process relationship input - Stage 3 (distress already checked)"""
         try:
             reflection = self._get_reflection(reflection_id, user_id)
 
@@ -536,18 +402,7 @@ class StageHandler:
         user_id: uuid.UUID,
         distress_level: int = 0
     ) -> UniversalResponse:
-        """
-        Process conversation - Stage 4 (distress already checked)
-        
-        Args:
-            reflection_id: Reflection UUID
-            request: User request
-            user_id: User UUID
-            distress_level: Pre-checked distress level
-            
-        Returns:
-            UniversalResponse: Stage 4 or Stage 100 response
-        """
+        """Process conversation - Stage 4 (distress already checked) - FIXED: No duplicate summary"""
         try:
             self.logger.info(f"Processing conversation stage - distress level: {distress_level}")
             
@@ -569,8 +424,8 @@ class StageHandler:
                     self.db.commit()
                     self.logger.info(f"Reflection stage updated to 100 for reflection_id: {reflection_id}")
                 
-                # Handle different completion modes
-                response = self._handle_stage4_completion_modes(
+                # FIXED: Handle completion modes without duplicate summary display
+                response = self._handle_stage4_completion_modes_fixed(
                     response, edit_mode, reflection_id, user_id
                 )
             
@@ -585,14 +440,16 @@ class StageHandler:
             self.logger.error(f"Error in process_conversation_stage: {str(e)}")
             raise HTTPException(status_code=500, detail="Conversation processing failed")
 
-    def _handle_stage4_completion_modes(
+    def _handle_stage4_completion_modes_fixed(
         self, 
         response: UniversalResponse, 
         edit_mode: Optional[str], 
         reflection_id: uuid.UUID, 
         user_id: uuid.UUID
     ) -> UniversalResponse:
-        """Handle different Stage 4 completion modes"""
+        """
+        FIXED: Handle different Stage 4 completion modes without duplicate summary display
+        """
         
         if edit_mode == "regenerate":
             self.logger.info("Regenerate request - preserving summary data")
@@ -607,35 +464,19 @@ class StageHandler:
             response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)
             
         else:
-            # Normal completion - Show summary and transition to identity reveal
+            # FIXED: Normal completion - Just transition message, no summary duplication
             self.logger.info("Normal Stage 4 completion - transitioning to identity reveal")
             
-            updated_reflection = self._get_reflection(reflection_id, user_id)
-            
+            # Simple transition message without showing summary again
             response.sarthi_message = (
-                f"Perfect! Your reflection summary is ready:\n\n"
-                f"\"{updated_reflection.reflection}\"\n\n"
-                f"Now, let's prepare to deliver your message. "
-                f"Would you like to reveal your name or send it anonymously?"
+                "Thanks for sharing all that. I've got everything I need — let's shape your message next. 💬"
             )
             response.current_stage = 100
             response.next_stage = 100
             response.progress = ProgressInfo(current_step=5, total_step=6, workflow_completed=False)
             
-            # Add identity reveal options
-            identity_data = {
-                "summary": updated_reflection.reflection,
-                "next_step": "identity_reveal",
-                "options": [
-                    {"reveal_name": True, "label": "Reveal my name"},
-                    {"reveal_name": False, "label": "Send anonymously"}
-                ]
-            }
-            
-            if isinstance(response.data, list):
-                response.data.append(identity_data)
-            else:
-                response.data = [identity_data]
+            # Clear any summary data to prevent duplication
+            response.data = []
         
         return response
 
@@ -654,17 +495,7 @@ class StageHandler:
         request: UniversalRequest, 
         user_id: uuid.UUID
     ) -> UniversalResponse:  
-        """
-        Handle stage 4 completion and transition to Stage 100
-        
-        Args:
-            reflection_id: Reflection UUID
-            request: User request
-            user_id: User UUID
-            
-        Returns:
-            UniversalResponse: Appropriate response based on completion status
-        """
+        """Handle stage 4 completion and transition to Stage 100"""
         try:
             self.logger.info("Handling Stage 4 completion/continuation")
             
@@ -687,8 +518,8 @@ class StageHandler:
                     stage100 = Stage100(self.db)
                     return await stage100.handle(request, user_id)
                 else:
-                    # First time transitioning - show summary and options
-                    return self._show_stage100_transition(reflection_id, reflection)
+                    # FIXED: First time transitioning - show identity options without duplicate summary
+                    return self._show_stage100_transition_fixed(reflection_id, reflection)
             else:
                 self.logger.info("No summary yet, continuing Stage 4 conversation")
                 return await self.process_conversation_stage(reflection_id, request, user_id)
@@ -704,22 +535,18 @@ class StageHandler:
             for key in stage100_keys
         )
 
-    def _show_stage100_transition(self, reflection_id: uuid.UUID, reflection: Reflection) -> UniversalResponse:
-        """Show Stage 100 transition with summary and identity options"""
+    def _show_stage100_transition_fixed(self, reflection_id: uuid.UUID, reflection: Reflection) -> UniversalResponse:
+        """
+        FIXED: Show Stage 100 transition with identity options only (no duplicate summary)
+        """
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
-            sarthi_message=(
-                f"Perfect! Your reflection summary is ready:\n\n"
-                f"\"{reflection.reflection}\"\n\n"
-                f"Now, let's prepare to deliver your message. "
-                f"Would you like to reveal your name or send it anonymously?"
-            ),
+            sarthi_message="Now, let's prepare to deliver your message. Would you like to reveal your name or send it anonymously?",
             current_stage=100,
             next_stage=100,
             progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
             data=[{
-                "summary": reflection.reflection,
                 "next_step": "identity_reveal",
                 "options": [
                     {"reveal_name": True, "label": "Reveal my name"},
@@ -729,19 +556,7 @@ class StageHandler:
         )
 
     def _get_reflection(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> Reflection:
-        """
-        Get and validate reflection from database
-        
-        Args:
-            reflection_id: Reflection UUID
-            user_id: User UUID
-            
-        Returns:
-            Reflection: Reflection object
-            
-        Raises:
-            HTTPException: If reflection not found
-        """
+        """Get and validate reflection from database"""
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id,
             Reflection.giver_user_id == user_id
@@ -754,16 +569,7 @@ class StageHandler:
         return reflection
 
     def get_completion_message(self, name: str, relation: str) -> str:
-        """
-        Get completion message from database (legacy method - kept for compatibility)
-        
-        Args:
-            name: Person's name
-            relation: Relationship
-            
-        Returns:
-            str: Completion message
-        """
+        """Get completion message from database (legacy method - kept for compatibility)"""
         try:
             stage = self.db.query(StageDict).filter(
                 StageDict.stage_name.ilike('%completion%'),
