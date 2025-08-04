@@ -26,36 +26,29 @@ jobs:
       run: |
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
           set -e
-
           sudo mkdir -p /opt/sarthi
           sudo chown -R $USER:$USER /opt/sarthi
 
-          # Stop service if running
           sudo systemctl stop sarthi || true
-
           cd /opt/sarthi
 
-          # Backup existing deployment
           if [ -d "current" ]; then
             mv current backup_$(date +%Y%m%d_%H%M%S)
           fi
 
-          # Clone latest code
           git clone https://github.com/${{ github.repository }}.git current
           cd current
 
-          # Set up Python environment
           python3.12 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
 
-          # Create .env file
-          cat > .env << EOL
+          cat > .env <<EOL
 DATABASE_URL=${{ secrets.DATABASE_URL }}
 JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
 JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=24
+JWT_EXPIRATION_HOURS=1
 OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
 PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
 PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
@@ -72,7 +65,6 @@ EOL
           chmod 600 .env
           sudo chown -R ubuntu:ubuntu /opt/sarthi/current
 
-          # Test application
           source venv/bin/activate
           python -c "from app.main import app; print('✅ App loads successfully')"
         EOF
