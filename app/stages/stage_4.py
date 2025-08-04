@@ -219,29 +219,32 @@ class Stage4(BaseStage):
         if is_done and assistant_reply and assistant_reply.startswith("{"):
             try:
                 summary_json = json.loads(assistant_reply)
-                if "user" in summary_json:
-                    # Save summary
-                    reflection.reflection = summary_json["user"]
+                summary_text = summary_json.get("user")
+
+                if summary_text and isinstance(summary_text, str):
+                    # Save summary to DB
+                    reflection.reflection = summary_text
                     reflection.updated_at = datetime.utcnow()
                     self.db.commit()
 
                     summary_data = {
-                        "summary": summary_json["user"]
+                        "summary": summary_text
                     }
-                    # Do not set sarthi_response here — summary should only go to data
+
+                    # Don't set sarthi_response — keep it as empty string
                 else:
-                    # If it's JSON but not a summary
+                    # Valid JSON but no "user" field → treat entire thing as assistant message
                     sarthi_response = assistant_reply
             except json.JSONDecodeError:
-                # Invalid JSON → treat as normal text
+                # Not a JSON → treat as normal assistant reply
                 sarthi_response = assistant_reply
 
         elif assistant_reply:
-            # Normal assistant message → store and show
+            # Normal assistant message (not summary)
             self.db.add(Message(
                 text=assistant_reply,
                 reflection_id=reflection_id,
-                sender=0,  # 0 = assistant
+                sender=0,  # Assistant
                 stage_no=4
             ))
             sarthi_response = assistant_reply
@@ -250,20 +253,20 @@ class Stage4(BaseStage):
 
         self.db.commit()
 
-        response_data = [summary_data] if summary_data else []
+        response_data = summary_data if summary_data else {}
 
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
-            sarthi_message=sarthi_response,
+            sarthi_message=sarthi_response,  # Always a string, never None
             current_stage=4,
-            next_stage=100 if is_done else 4,
+            next_stage=100 if summary_data else 4,
             progress=ProgressInfo(
                 current_step=4,
                 total_step=5,
-                workflow_completed=False
+                workflow_completed=bool(summary_data)
             ),
-            data=response_data
+            data=response_data  # Contains {"summary": ...} or {}
         )
 
     async def close(self):
