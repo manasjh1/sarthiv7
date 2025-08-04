@@ -10,59 +10,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1 — Check out the code
+      # 1 — Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2 — Start an SSH agent and load the EC2 key **and** a repo-deploy key
-      #     (the repo-deploy key lets the remote host clone your private repo)
+      # 2 — Setup SSH agent with EC2 + repo deploy key
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.7.0
         with:
           ssh-private-key: |
             ${{ secrets.EC2_KEY }}
-            ${{ secrets.REPO_DEPLOY_KEY }}   # ← generate & add as a Deploy key
+            ${{ secrets.REPO_DEPLOY_KEY }}
 
-      # 3 — Add the EC2 host to known_hosts so SSH is non-interactive
+      # 3 — Add EC2 host to known-hosts
       - name: Add EC2 host to known-hosts
         run: |
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # 4 — Deploy on the EC2 instance (-A forwards the agent so the repo key works)
+      # 4 — Deploy to EC2 instance
       - name: Deploy to EC2
-        env:
-          HOST: ${{ secrets.EC2_HOST }}
-          USER: ${{ secrets.EC2_USER }}
-          REPO: ${{ github.repository }}
         run: |
-          ssh -A "${USER}@${HOST}" <<'EOF'
+          ssh -A "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" <<EOF
             set -euo pipefail
 
-            # ── Prepare /opt/sarthi ───────────────────────────────────────────────
+            REPO="manasjh1/sarthiv7"
+
             sudo mkdir -p /opt/sarthi
             sudo chown -R "$USER":"$USER" /opt/sarthi
             cd /opt/sarthi
 
-            # ── Stop running service if any ──────────────────────────────────────
             sudo systemctl stop sarthi || true
 
-            # ── Backup previous release ──────────────────────────────────────────
             if [ -d current ]; then
               mv current "backup_$(date +%Y%m%d_%H%M%S)"
             fi
 
-            # ── Clone latest code (SSH uses the forwarded deploy key) ────────────
-            git clone --depth 1 git@github.com:${REPO}.git current
+            git clone --depth 1 git@github.com:$REPO.git current
             cd current
 
-            # ── Python venv & dependencies ──────────────────────────────────────
-            python3 -m venv venv
+            python3.12 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # ── Build .env file with secrets ─────────────────────────────────────
-            cat > .env <<'ENVEOF'
+            cat > .env <<ENVEOF
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             JWT_ALGORITHM=HS256
@@ -83,14 +74,14 @@ jobs:
             chmod 600 .env
             sudo chown -R ubuntu:ubuntu /opt/sarthi/current
 
-            # ── Smoke-test: the app must import without crashing ─────────────────
-            python - <<'PY'
+            source venv/bin/activate
+            python <<PY
             from app.main import app
-            print("✅ FastAPI app imported successfully")
+            print("✅ App loaded successfully")
             PY
           EOF
 
-      # 5 — (Re)start and verify the systemd service
+      # 5 — Start service
       - name: Start Sarthi service
         run: |
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" <<'EOF'
@@ -100,7 +91,7 @@ jobs:
             sudo systemctl status sarthi --no-pager
           EOF
 
-      # 6 — Hit the health-check endpoint
+      # 6 — Health check
       - name: Health check
         run: |
           sleep 10
