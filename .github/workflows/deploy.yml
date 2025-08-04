@@ -104,5 +104,5 @@ jobs:
     - name: Health Check
       run: |
         sleep 10
-        curl -f http://${{ secrets.EC2_HOST }}:8000/health || exit 1
+        curl -f http://${{ secrets.EC2_HOST }}/health || exit 1
         echo "✅ Deployment successful"
