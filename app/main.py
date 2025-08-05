@@ -5,7 +5,7 @@ from app.api import invite, otp, user, reflection, reflection_history
 app = FastAPI(
     title="Sarthi API",
     description="Reflection System with Universal Endpoint",
-    version="1.0.3"  # Updated version
+    version="1.0.4"  # Updated version
 )
 
 # CORS Configuration - Fixed for frontend
@@ -16,8 +16,10 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "https://localhost:3000",  # HTTPS local development
         "https://127.0.0.1:3000",  # HTTPS local development
-        "https://sarthi-frontend-six.vercel.app",
-        "https://sarthi-frontend-six.vercel.app/",  # With trailing slash
+        "https://sarthi-frontend-six.vercel.app",      # Old Vercel URL
+        "https://sarthi-frontend-six.vercel.app/",     # With trailing slash
+        "https://sarthi-frontend-seven.vercel.app",    # New Vercel URL
+        "https://sarthi-frontend-seven.vercel.app/",   # With trailing slash
         "*"  # Allow all origins - REMOVE THIS IN PRODUCTION
     ],
     allow_credentials=True,
@@ -37,7 +39,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "Sarthi API",
-        "version": "1.0.3"  # Updated to match FastAPI version
+        "version": "1.0.4"  # Updated to match FastAPI version
     }
 
 @app.get("/", tags=["system"])
