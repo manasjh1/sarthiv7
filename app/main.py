@@ -5,9 +5,10 @@ from app.api import invite, otp, user, reflection, reflection_history
 app = FastAPI(
     title="Sarthi API",
     description="Reflection System with Universal Endpoint",
-    version="1.0.0"
+    version="1.0.2"
 )
 
+# CORS Configuration - THIS IS THE ONLY CHANGE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -16,7 +17,7 @@ app.add_middleware(
         "https://sarthi-frontend-six.vercel.app"
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],  # Changed from specific methods to "*"
     allow_headers=["*"],
 )
 
