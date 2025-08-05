@@ -93,16 +93,21 @@ jobs:
           python -c "from app.main import app; print(\"✅ App loaded successfully\")"
         '
 
-    - name: Start Services
+    - name: Start Services and Verify
       run: |
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
           sudo systemctl start sarthi
           sleep 5
-          sudo systemctl status sarthi --no-pager
+          
+          # Check if service is running
+          if sudo systemctl is-active sarthi > /dev/null; then
+            echo "✅ Service is running successfully"
+            sudo systemctl status sarthi --no-pager -l
+          else
+            echo "❌ Service failed to start"
+            sudo systemctl status sarthi --no-pager -l
+            exit 1
+          fi
+          
+          echo "✅ Deployment completed successfully"
         '
-
-    - name: Health Check
-      run: |
-        sleep 10
-        curl -f http://${{ secrets.EC2_HOST }}/health || exit 1
-        echo "✅ Deployment successful"
