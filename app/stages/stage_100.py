@@ -14,7 +14,7 @@ import logging
 class Stage100:
     """
     Stage 100: Identity Reveal, Delivery Mode Selection, Message Delivery, and Feedback Collection
-    FIXED: No duplicate summary display and no syntax errors
+    FIXED: Always fetch summary from database for consistency
     """
 
     def __init__(self, db):
@@ -25,10 +25,22 @@ class Stage100:
         self.auth_manager = AuthManager()
         self.logger = logging.getLogger(__name__)
 
+    def get_reflection_summary_from_db(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> str | None:
+        """
+        CENTRALIZED: Always fetch summary from database
+        Returns None if no summary exists
+        """
+        reflection = self.db.query(Reflection).filter(
+            Reflection.reflection_id == reflection_id,
+            Reflection.giver_user_id == user_id
+        ).first()
+        
+        if reflection and reflection.reflection and reflection.reflection.strip():
+            return reflection.reflection
+        return None
+
     async def handle(self, request: UniversalRequest, user_id: str) -> UniversalResponse:
-        """
-        Main Stage 100 handler - FIXED: No duplicate summary display
-        """
+        """Main Stage 100 handler - ALWAYS fetch summary from database"""
         try:
             # Input validation and conversion
             reflection_id = self._validate_and_convert_reflection_id(request.reflection_id)
@@ -36,7 +48,10 @@ class Stage100:
 
             # Fetch and validate reflection
             reflection = self._get_reflection(reflection_id, user_uuid)
-            if not reflection.reflection or not reflection.reflection.strip():
+            
+            # ALWAYS fetch summary from database
+            current_summary = self.get_reflection_summary_from_db(reflection_id, user_uuid)
+            if not current_summary:
                 raise HTTPException(
                     status_code=400, 
                     detail="No summary available for delivery. Please complete Stage 4 first."
@@ -52,11 +67,11 @@ class Stage100:
 
             # ========== FEEDBACK PHASE (Final Phase) ==========
             if choices.get('feedback_choice') is not None:
-                return self._handle_feedback_submission(reflection_id, reflection, choices['feedback_choice'])
+                return self._handle_feedback_submission(reflection_id, user_uuid, choices['feedback_choice'])
             
             # If feedback already submitted, show completion
             if reflection.feedback_type and reflection.feedback_type > 0:
-                return self._show_feedback_already_submitted(reflection_id, reflection.feedback_type)
+                return self._show_feedback_already_submitted(reflection_id, user_uuid, reflection.feedback_type)
 
             # ========== THIRD-PARTY EMAIL DELIVERY ==========
             if choices.get('third_party_email'):
@@ -65,7 +80,7 @@ class Stage100:
                 )
 
             # ========== IDENTITY REVEAL PHASE ==========
-            identity_status = self._get_identity_status(reflection, user, choices)
+            identity_status = self._get_identity_status(reflection, user, choices, reflection_id, user_uuid)
             
             if identity_status['needs_input']:
                 return identity_status['response']
@@ -73,21 +88,20 @@ class Stage100:
             # ========== DELIVERY MODE SELECTION ==========
             if choices.get('delivery_mode') is not None:
                 return await self._handle_delivery_mode_selection(
-                    reflection, user, choices['delivery_mode'], reflection_id
+                    reflection, user, choices['delivery_mode'], reflection_id, user_uuid
                 )
             
             # If identity decided but delivery mode not selected, show delivery options
             if identity_status['decided'] and reflection.delivery_mode is None:
-                return self._show_delivery_options(reflection_id, reflection)
+                return self._show_delivery_options(reflection_id, user_uuid)
 
             # ========== POST-DELIVERY FEEDBACK ==========
             # If delivery is complete, show feedback options
             if reflection.delivery_mode is not None:
-                return self._show_feedback_options(reflection_id)
+                return self._show_feedback_options(reflection_id, user_uuid)
             
-            # Fallback - should not reach here in normal flow
-            self.logger.warning(f"Unexpected state in Stage 100 for reflection {reflection_id}")
-            raise HTTPException(status_code=500, detail="Unexpected state in Stage 100")
+            # FIRST TIME ENTERING STAGE 100 - Show summary and identity options
+            return self._show_stage100_initial_view(reflection_id, user_uuid)
 
         except HTTPException:
             raise
@@ -97,6 +111,28 @@ class Stage100:
         except Exception as e:
             self.logger.error(f"Unexpected error in Stage 100: {str(e)}")
             raise HTTPException(status_code=500, detail="Stage 100 processing failed")
+
+    def _show_stage100_initial_view(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> UniversalResponse:
+        """Show initial Stage 100 view with summary from database"""
+        # ALWAYS fetch from database
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
+        
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message="Here's your reflection summary. Now, let's prepare to deliver your message. Would you like to reveal your name or send it anonymously?",
+            current_stage=100,
+            next_stage=100,
+            progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
+            data=[{
+                "summary": current_summary,  # FROM DATABASE!
+                "next_step": "identity_reveal",
+                "options": [
+                    {"reveal_name": True, "label": "Reveal my name"},
+                    {"reveal_name": False, "label": "Send anonymously"}
+                ]
+            }]
+        )
 
     def _validate_and_convert_reflection_id(self, reflection_id: Optional[str]) -> uuid.UUID:
         """Validate and convert reflection ID to UUID"""
@@ -154,11 +190,8 @@ class Stage100:
         
         return choices
 
-    def _get_identity_status(self, reflection: Reflection, user: User, choices: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Determine identity reveal status and return appropriate response
-        FIXED: No duplicate summary in response messages
-        """
+    def _get_identity_status(self, reflection: Reflection, user: User, choices: Dict[str, Any], reflection_id: uuid.UUID, user_id: uuid.UUID) -> Dict[str, Any]:
+        """Determine identity reveal status and return appropriate response - ALWAYS fetch summary from DB"""
         # Check if identity has already been decided
         identity_decided = (
             hasattr(reflection, 'is_anonymous') and 
@@ -193,8 +226,10 @@ class Stage100:
                     self.logger.info(f"User provided name '{provided_name}' for reflection {reflection.reflection_id}")
                     return {'decided': True, 'needs_input': False}
                 else:
-                    # Ask for name input - NO SUMMARY SHOWN
+                    # Ask for name input - fetch summary from DB
+                    current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
                     default_name = user.name if user.name else ""
+                    
                     response = UniversalResponse(
                         success=True,
                         reflection_id=str(reflection.reflection_id),
@@ -203,6 +238,7 @@ class Stage100:
                         next_stage=100,
                         progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
                         data=[{
+                            "summary": current_summary,  # FROM DATABASE!
                             "input": {
                                 "name": "name", 
                                 "placeholder": "Enter your name",
@@ -220,16 +256,19 @@ class Stage100:
             self.logger.info(f"User provided name '{provided_name}' for reflection {reflection.reflection_id}")
             return {'decided': True, 'needs_input': False}
         
-        # If identity still not decided, ask for it - NO SUMMARY SHOWN
+        # If identity still not decided, ask for it - fetch summary from DB
         if not identity_decided:
+            current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
+            
             response = UniversalResponse(
                 success=True,
                 reflection_id=str(reflection.reflection_id),
-                sarthi_message="Would you like to reveal your name in this message, or send it anonymously?",
+                sarthi_message="Here's your reflection summary. Would you like to reveal your name in this message, or send it anonymously?",
                 current_stage=100,
                 next_stage=100,
                 progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
                 data=[{
+                    "summary": current_summary,  # FROM DATABASE!
                     "options": [
                         {"reveal_name": True, "label": "Reveal my name"},
                         {"reveal_name": False, "label": "Send anonymously"}
@@ -240,8 +279,11 @@ class Stage100:
         
         return {'decided': True, 'needs_input': False}
 
-    def _show_delivery_options(self, reflection_id: uuid.UUID, reflection: Reflection) -> UniversalResponse:
-        """Show delivery mode options to user - FIXED: No summary duplication"""
+    def _show_delivery_options(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> UniversalResponse:
+        """Show delivery mode options to user - fetch summary from DB"""
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
+        reflection = self._get_reflection(reflection_id, user_id)
+        
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
@@ -250,6 +292,7 @@ class Stage100:
             next_stage=100,
             progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
             data=[{
+                "summary": current_summary,  # FROM DATABASE!
                 "delivery_options": [
                     {"mode": 0, "name": "Email", "description": "Send via email"},
                     {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
@@ -272,7 +315,8 @@ class Stage100:
         reflection: Reflection, 
         user: User, 
         delivery_mode: int, 
-        reflection_id: uuid.UUID
+        reflection_id: uuid.UUID,
+        user_id: uuid.UUID
     ) -> UniversalResponse:
         """Handle delivery mode selection and execute delivery"""
         
@@ -284,13 +328,16 @@ class Stage100:
         reflection.delivery_mode = delivery_mode
         self.db.commit()
         
+        # Get summary from database for delivery
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
+        
         self.logger.info(f"Delivery mode {delivery_mode} selected for reflection {reflection_id}")
 
         # Handle actual delivery
-        delivery_result = await self._handle_standard_delivery(delivery_mode, user, reflection.reflection)
+        delivery_result = await self._handle_standard_delivery(delivery_mode, user, current_summary)
         
         # After successful delivery, show feedback options
-        return self._show_feedback_options_after_delivery(reflection_id, delivery_result)
+        return self._show_feedback_options_after_delivery(reflection_id, user_id, delivery_result)
 
     async def _handle_standard_delivery(self, delivery_mode: int, user: User, summary: str) -> Dict[str, Any]:
         """Handle standard delivery modes with comprehensive error handling and logging"""
@@ -423,8 +470,9 @@ class Stage100:
             reflection = self._get_reflection(reflection_id, user_id)
             user = self._get_user(user_id)
 
-            # Get sender name
+            # Get sender name and summary from database
             sender_name = self._get_sender_name(reflection, user)
+            current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
 
             self.logger.info(f"Attempting third-party email delivery to {recipient_email}")
 
@@ -433,7 +481,7 @@ class Stage100:
                 sender_name=sender_name,
                 receiver_name=reflection.name or "Recipient",
                 receiver_email=recipient_email,
-                feedback_summary=reflection.reflection
+                feedback_summary=current_summary
             )
 
             if not result.success:
@@ -444,7 +492,7 @@ class Stage100:
             self.db.commit()
 
             return self._show_feedback_options_after_third_party_delivery(
-                reflection_id, recipient_email, sender_name, reflection.name
+                reflection_id, user_id, recipient_email, sender_name, reflection.name
             )
 
         except HTTPException:
@@ -470,9 +518,10 @@ class Stage100:
         else:
             return "Anonymous"
 
-    def _show_feedback_options_after_delivery(self, reflection_id: uuid.UUID, delivery_result: Dict[str, Any]) -> UniversalResponse:
+    def _show_feedback_options_after_delivery(self, reflection_id: uuid.UUID, user_id: uuid.UUID, delivery_result: Dict[str, Any]) -> UniversalResponse:
         """Show feedback options after successful standard delivery"""
         
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)  # FROM DATABASE!
         feedback_options = self._get_feedback_options()
 
         return UniversalResponse(
@@ -483,6 +532,7 @@ class Stage100:
             next_stage=100,
             progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=False),
             data=[{
+                "summary": current_summary,  # FROM DATABASE!
                 "feedback_options": feedback_options,
                 "instruction": "Select how you're feeling after this reflection experience",
                 "delivery_status": delivery_result["status"]
@@ -492,12 +542,14 @@ class Stage100:
     def _show_feedback_options_after_third_party_delivery(
         self, 
         reflection_id: uuid.UUID, 
+        user_id: uuid.UUID,
         recipient_email: str, 
         sender_name: str, 
         about_name: str
     ) -> UniversalResponse:
         """Show feedback options after third-party email delivery"""
         
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)  # FROM DATABASE!
         feedback_options = self._get_feedback_options()
 
         return UniversalResponse(
@@ -508,6 +560,7 @@ class Stage100:
             next_stage=100,
             progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=False),
             data=[{
+                "summary": current_summary,  # FROM DATABASE!
                 "feedback_options": feedback_options,
                 "instruction": "Select how you're feeling after this reflection experience",
                 "third_party_email_sent": True,
@@ -517,9 +570,10 @@ class Stage100:
             }]
         )
 
-    def _show_feedback_options(self, reflection_id: uuid.UUID) -> UniversalResponse:
+    def _show_feedback_options(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> UniversalResponse:
         """Show feedback options when called directly (delivery already complete)"""
         
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)  # FROM DATABASE!
         feedback_options = self._get_feedback_options()
 
         return UniversalResponse(
@@ -530,6 +584,7 @@ class Stage100:
             next_stage=100,
             progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=False),
             data=[{
+                "summary": current_summary,  # FROM DATABASE!
                 "feedback_options": feedback_options,
                 "instruction": "Select how you're feeling after this reflection experience"
             }]
@@ -553,7 +608,7 @@ class Stage100:
             for option in feedback_options
         ]
 
-    def _handle_feedback_submission(self, reflection_id: uuid.UUID, reflection: Reflection, feedback_choice: int) -> UniversalResponse:
+    def _handle_feedback_submission(self, reflection_id: uuid.UUID, user_id: uuid.UUID, feedback_choice: int) -> UniversalResponse:
         """Handle feedback submission and complete workflow"""
         
         # Validate feedback choice
@@ -569,8 +624,12 @@ class Stage100:
             raise HTTPException(status_code=400, detail=f"Feedback option {feedback_choice} not found in database")
 
         # Update reflection with feedback
+        reflection = self._get_reflection(reflection_id, user_id)
         reflection.feedback_type = feedback_choice
         self.db.commit()
+        
+        # Get summary from database
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
         
         self.logger.info(f"Feedback {feedback_choice} submitted for reflection {reflection_id}")
 
@@ -582,6 +641,7 @@ class Stage100:
             next_stage=101,  # Logical completion
             progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=True),
             data=[{
+                "summary": current_summary,  # FROM DATABASE!
                 "feedback_submitted": True,
                 "feedback_choice": feedback_choice,
                 "feedback_text": feedback_option.feedback_text,
@@ -589,8 +649,11 @@ class Stage100:
             }]
         )
 
-    def _show_feedback_already_submitted(self, reflection_id: uuid.UUID, feedback_type: int) -> UniversalResponse:
+    def _show_feedback_already_submitted(self, reflection_id: uuid.UUID, user_id: uuid.UUID, feedback_type: int) -> UniversalResponse:
         """Show message when feedback has already been submitted"""
+        
+        # Get summary from database
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
         
         feedback_option = self.db.query(Feedback).filter(
             Feedback.feedback_no == feedback_type
@@ -606,6 +669,7 @@ class Stage100:
             next_stage=101,
             progress=ProgressInfo(current_step=6, total_step=6, workflow_completed=True),
             data=[{
+                "summary": current_summary,  # FROM DATABASE!
                 "feedback_already_submitted": True,
                 "feedback_choice": feedback_type,
                 "feedback_text": feedback_text,

@@ -1,4 +1,4 @@
-# app/stage_handler.py - FIXED - No Duplicate Summary Display
+# app/stage_handler.py - FIXED - Proper Stage 4 Chat Initialization
 
 from typing import List, Optional, Dict, Any
 import uuid
@@ -17,7 +17,7 @@ import logging
 class StageHandler:
     """
     Production-level Stage Handler with centralized async distress detection
-    FIXED: No duplicate summary display between Stage 4 and Stage 100
+    FIXED: Proper Stage 4 initialization and summary display
     """
 
     def __init__(self, db: Session):
@@ -99,7 +99,7 @@ class StageHandler:
             # If regenerate/edit request, always route to Stage4 regardless of current_stage
             if edit_mode in ["regenerate", "edit"]:
                 self.logger.info(f"Edit mode '{edit_mode}' detected - routing to Stage4 regardless of current stage {current_stage}")
-                return await self._handle_stage4_edit_mode(request, user_id)
+                return await self._handle_stage4_requests(request, user_id)
             
             # Handle Stage 100 (delivery, identity reveal, feedback)
             if current_stage == 100:
@@ -107,10 +107,10 @@ class StageHandler:
                 stage = Stage100(self.db)
                 return await stage.handle(request, user_id)
             
-            # Handle Stage 4 completion/continuation
+            # Handle Stage 4 (conversation or completion)
             if current_stage == 4:
-                self.logger.info("Processing Stage 4 completion/continuation")
-                return await self.handle_stage4_completion(reflection_id, request, user_id)
+                self.logger.info("Processing Stage 4 - guided conversation")
+                return await self._handle_stage4_requests(request, user_id)
             
             # ========== CENTRALIZED ASYNC DISTRESS DETECTION ==========
             target_stage = current_stage + 1
@@ -151,14 +151,59 @@ class StageHandler:
         """Extract edit mode from request data"""
         return next((item.get("edit_mode") for item in data if "edit_mode" in item), None)
 
-    async def _handle_stage4_edit_mode(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
-        """Handle Stage 4 edit mode (regenerate/edit)"""
+    async def _handle_stage4_requests(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+        """Handle all Stage 4 requests (normal conversation, edit, regenerate)"""
         stage = Stage4(self.db)
         try:
             response = await stage.process(request, user_id)
+            
+            # Handle completion transition
+            if response.next_stage == 100:
+                self.logger.info("Stage 4 completed, updating reflection stage to 100")
+                
+                reflection_id = uuid.UUID(request.reflection_id)
+                reflection = self._get_reflection(reflection_id, user_id)
+                if reflection.stage_no != 100:
+                    reflection.stage_no = 100
+                    self.db.commit()
+                    self.logger.info(f"Reflection stage updated to 100 for reflection_id: {reflection_id}")
+                
+                # Handle different completion modes
+                edit_mode = self._extract_edit_mode(request.data)
+                response = self._handle_stage4_completion_modes(response, edit_mode)
+            
             return response
         finally:
-            await stage.close()  # Clean up async client
+            await stage.close()
+
+    def _handle_stage4_completion_modes(
+        self, 
+        response: UniversalResponse, 
+        edit_mode: Optional[str]
+    ) -> UniversalResponse:
+        """Handle different Stage 4 completion modes"""
+        
+        if edit_mode == "regenerate":
+            self.logger.info("Regenerate request - preserving summary data")
+            response.current_stage = 4
+            response.next_stage = 100
+            response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)
+            
+        elif edit_mode == "edit":
+            self.logger.info("Edit request - preserving edit confirmation")
+            response.current_stage = 4
+            response.next_stage = 100
+            response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)
+            
+        else:
+            # Normal completion - transition to Stage 100
+            self.logger.info("Normal Stage 4 completion - transitioning to identity reveal")
+            response.current_stage = 100
+            response.next_stage = 100
+            response.progress = ProgressInfo(current_step=5, total_step=6, workflow_completed=False)
+            # Keep the summary in data - don't clear it
+        
+        return response
 
     async def _route_to_stage(
         self, 
@@ -176,7 +221,7 @@ class StageHandler:
         elif target_stage == 3:
             return self.process_relationship_stage(reflection_id, request, user_id, distress_level)
         elif target_stage == 4:
-            return await self.process_conversation_stage(reflection_id, request, user_id, distress_level)
+            return await self._handle_stage4_requests(request, user_id)
         else:
             self.logger.warning(f"Workflow completed or invalid target stage: {target_stage}")
             raise HTTPException(status_code=400, detail="Workflow completed or invalid stage")
@@ -395,166 +440,6 @@ class StageHandler:
             self.db.rollback()
             raise HTTPException(status_code=500, detail="Relationship processing failed")
 
-    async def process_conversation_stage(
-        self, 
-        reflection_id: uuid.UUID, 
-        request: UniversalRequest, 
-        user_id: uuid.UUID,
-        distress_level: int = 0
-    ) -> UniversalResponse:
-        """Process conversation - Stage 4 (distress already checked) - FIXED: No duplicate summary"""
-        try:
-            self.logger.info(f"Processing conversation stage - distress level: {distress_level}")
-            
-            stage = Stage4(self.db)
-            response = await stage.process(request, user_id)
-            await stage.close()  # Clean up async client
-            
-            # Check for edit_mode to handle regenerate/edit differently
-            edit_mode = self._extract_edit_mode(request.data)
-            
-            # Check if Stage 4 completed (summary generated, regenerated, or edited)
-            if response.next_stage == 100:
-                self.logger.info("Stage 4 completed, updating reflection stage to 100")
-                
-                # Update the reflection stage to 100 in database
-                reflection = self._get_reflection(reflection_id, user_id)
-                if reflection.stage_no != 100:
-                    reflection.stage_no = 100
-                    self.db.commit()
-                    self.logger.info(f"Reflection stage updated to 100 for reflection_id: {reflection_id}")
-                
-                # FIXED: Handle completion modes without duplicate summary display
-                response = self._handle_stage4_completion_modes_fixed(
-                    response, edit_mode, reflection_id, user_id
-                )
-            
-            # Add distress level info only for normal conversations (not regenerate/edit)
-            if edit_mode not in ["regenerate", "edit"]:
-                self._add_distress_info_to_response(response, distress_level)
-                    
-            return response
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error in process_conversation_stage: {str(e)}")
-            raise HTTPException(status_code=500, detail="Conversation processing failed")
-
-    def _handle_stage4_completion_modes_fixed(
-        self, 
-        response: UniversalResponse, 
-        edit_mode: Optional[str], 
-        reflection_id: uuid.UUID, 
-        user_id: uuid.UUID
-    ) -> UniversalResponse:
-        """
-        FIXED: Handle different Stage 4 completion modes without duplicate summary display
-        """
-        
-        if edit_mode == "regenerate":
-            self.logger.info("Regenerate request - preserving summary data")
-            response.current_stage = 4
-            response.next_stage = 100
-            response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)
-            
-        elif edit_mode == "edit":
-            self.logger.info("Edit request - preserving edit confirmation")
-            response.current_stage = 4
-            response.next_stage = 100
-            response.progress = ProgressInfo(current_step=4, total_step=6, workflow_completed=False)
-            
-        else:
-            # FIXED: Normal completion - Just transition message, no summary duplication
-            self.logger.info("Normal Stage 4 completion - transitioning to identity reveal")
-            
-            # Simple transition message without showing summary again
-            response.sarthi_message = (
-                "Thanks for sharing all that. I've got everything I need — let's shape your message next. 💬"
-            )
-            response.current_stage = 100
-            response.next_stage = 100
-            response.progress = ProgressInfo(current_step=5, total_step=6, workflow_completed=False)
-            
-            # Clear any summary data to prevent duplication
-            response.data = []
-        
-        return response
-
-    def _add_distress_info_to_response(self, response: UniversalResponse, distress_level: int):
-        """Add distress level information to response data"""
-        distress_info = {"distress_level": distress_level}
-        
-        if isinstance(response.data, list):
-            response.data.append(distress_info)
-        else:
-            response.data = [distress_info]
-
-    async def handle_stage4_completion(
-        self, 
-        reflection_id: uuid.UUID, 
-        request: UniversalRequest, 
-        user_id: uuid.UUID
-    ) -> UniversalResponse:  
-        """Handle stage 4 completion and transition to Stage 100"""
-        try:
-            self.logger.info("Handling Stage 4 completion/continuation")
-            
-            reflection = self._get_reflection(reflection_id, user_id)
-            
-            # If summary already exists, user is ready for Stage 100
-            if reflection.reflection and reflection.reflection.strip():
-                self.logger.info("Summary exists, transitioning to Stage 100")
-                
-                # Update stage to 100 if not already
-                if reflection.stage_no != 100:
-                    reflection.stage_no = 100
-                    self.db.commit()
-                
-                # Check if this is a specific Stage 100 request
-                has_stage100_data = self._has_stage100_data(request.data)
-                
-                if has_stage100_data:
-                    # User is actively engaging with Stage 100 flow
-                    stage100 = Stage100(self.db)
-                    return await stage100.handle(request, user_id)
-                else:
-                    # FIXED: First time transitioning - show identity options without duplicate summary
-                    return self._show_stage100_transition_fixed(reflection_id, reflection)
-            else:
-                self.logger.info("No summary yet, continuing Stage 4 conversation")
-                return await self.process_conversation_stage(reflection_id, request, user_id)
-        except Exception as e:
-            self.logger.error(f"Error in handle_stage4_completion: {str(e)}")
-            raise HTTPException(status_code=500, detail="Stage 4 completion handling failed")
-
-    def _has_stage100_data(self, data: List[Dict[str, Any]]) -> bool:
-        """Check if request contains Stage 100 specific data"""
-        stage100_keys = ["reveal_name", "name", "delivery_mode", "email", "feedback"]
-        return any(
-            key in item for item in data 
-            for key in stage100_keys
-        )
-
-    def _show_stage100_transition_fixed(self, reflection_id: uuid.UUID, reflection: Reflection) -> UniversalResponse:
-        """
-        FIXED: Show Stage 100 transition with identity options only (no duplicate summary)
-        """
-        return UniversalResponse(
-            success=True,
-            reflection_id=str(reflection_id),
-            sarthi_message="Now, let's prepare to deliver your message. Would you like to reveal your name or send it anonymously?",
-            current_stage=100,
-            next_stage=100,
-            progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
-            data=[{
-                "next_step": "identity_reveal",
-                "options": [
-                    {"reveal_name": True, "label": "Reveal my name"},
-                    {"reveal_name": False, "label": "Send anonymously"}
-                ]
-            }]
-        )
-
     def _get_reflection(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> Reflection:
         """Get and validate reflection from database"""
         reflection = self.db.query(Reflection).filter(
@@ -567,22 +452,3 @@ class StageHandler:
             raise HTTPException(status_code=404, detail="Reflection not found")
 
         return reflection
-
-    def get_completion_message(self, name: str, relation: str) -> str:
-        """Get completion message from database (legacy method - kept for compatibility)"""
-        try:
-            stage = self.db.query(StageDict).filter(
-                StageDict.stage_name.ilike('%completion%'),
-                StageDict.status == 1
-            ).first()
-
-            if stage and stage.prompt:
-                try:
-                    return stage.prompt.format(name=name, relation=relation)
-                except Exception:
-                    return stage.prompt
-
-            return f"Perfect! Your feedback for {name} ({relation}) has been recorded successfully. Thank you for using Sarthi."
-        except Exception as e:
-            self.logger.error(f"Error getting completion message: {str(e)}")
-            return "Thank you for completing your reflection with Sarthi."

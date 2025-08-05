@@ -13,11 +13,10 @@ class Stage4(BaseStage):
     """
     Stage 4: Guided conversation with LLM (6-turn limit) with automatic summary generation
     
-    Features:
-    - Plain text format: All user messages sent as plain text (consistent with history)
-    - Backend message: User input count sent as separate system message
-    - Turn limit management: Enforces 6-turn conversation limit
-    - ASYNC: All OpenAI API calls are now asynchronous
+    FIXED: Always fetch summary from database for consistency
+    - Summary saved to DB first
+    - Then fetched from DB for response
+    - Ensures data consistency across all scenarios
     """
 
     def __init__(self, db):
@@ -31,9 +30,7 @@ class Stage4(BaseStage):
         return "This method is not used in Stage4."
 
     def get_system_prompt(self, reflection_id: uuid.UUID) -> str:
-        """
-        Get system prompt from CategoryDict table based on reflection's category
-        """
+        """Get system prompt from CategoryDict table based on reflection's category"""
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id
         ).first()
@@ -50,15 +47,25 @@ class Stage4(BaseStage):
         return category.system_prompt
 
     def get_user_input_count(self, history: list) -> int:
-        """
-        Simple count of user messages in the conversation
-        """
+        """Simple count of user messages in the conversation"""
         return len([msg for msg in history if msg["role"] == "user"]) + 1
 
+    def get_reflection_summary_from_db(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> str | None:
+        """
+        CENTRALIZED: Always fetch summary from database
+        Returns None if no summary exists
+        """
+        reflection = self.db.query(Reflection).filter(
+            Reflection.reflection_id == reflection_id,
+            Reflection.giver_user_id == user_id
+        ).first()
+        
+        if reflection and reflection.reflection and reflection.reflection.strip():
+            return reflection.reflection
+        return None
+
     async def generate_llm_response(self, system_prompt: str, history: list, user_input: str, backend_message: str = None) -> tuple[str, str | None]:
-        """
-        Generate LLM response asynchronously
-        """
+        """Generate LLM response asynchronously"""
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         
@@ -81,6 +88,7 @@ class Stage4(BaseStage):
             )
             raw_reply = response.choices[0].message.content.strip()
 
+            # Check for summary JSON response
             if "{" in raw_reply and "\"user\":" in raw_reply:
                 try:
                     start_idx = raw_reply.find("{")
@@ -93,6 +101,7 @@ class Stage4(BaseStage):
                 except (json.JSONDecodeError, ValueError):
                     pass
 
+            # Check for system completion flag
             if raw_reply.startswith("{") and "system_flag" in raw_reply:
                 try:
                     parsed = json.loads(raw_reply)
@@ -105,13 +114,10 @@ class Stage4(BaseStage):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"LLM Error: {str(e)}")
 
-    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
-        """
-        Main processing method for Stage 4 conversations - NOW ASYNC
-        """
+    async def process_edit_mode(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+        """Handle edit and regenerate modes - ALWAYS fetch summary from DB"""
         reflection_id = uuid.UUID(request.reflection_id)
-        user_message = request.message.strip()
-
+        
         reflection = self.db.query(Reflection).filter(
             Reflection.reflection_id == reflection_id,
             Reflection.giver_user_id == user_id
@@ -125,17 +131,25 @@ class Stage4(BaseStage):
             from distress_detection import DistressDetector
             distress_detector = DistressDetector()
             
+            user_message = request.message.strip()
+            if not user_message:
+                raise HTTPException(status_code=400, detail="Message is required for edit mode")
+            
             # ASYNC distress check
             distress = await distress_detector.check(user_message)
-            await distress_detector.close()  # Clean up async client
+            await distress_detector.close()
 
             if distress == 1:
                 raise HTTPException(status_code=400, detail="Distress detected in custom message")
 
+            # 1. SAVE to database
             reflection.reflection = user_message
             reflection.stage_no = 4
             reflection.updated_at = datetime.utcnow()
             self.db.commit()
+
+            # 2. FETCH from database for consistency
+            saved_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
 
             return UniversalResponse(
                 success=True,
@@ -144,7 +158,11 @@ class Stage4(BaseStage):
                 current_stage=4,
                 next_stage=100,
                 progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
-                data=[]
+                data=[{
+                    "summary": saved_summary,  # FROM DATABASE!
+                    "edited": True,
+                    "updated_at": reflection.updated_at.isoformat() if reflection.updated_at else None
+                }]
             )
 
         elif edit_mode == "regenerate":
@@ -158,12 +176,13 @@ class Stage4(BaseStage):
                 try:
                     summary_json = json.loads(assistant_reply)
                     if "user" in summary_json:
+                        # 1. SAVE to database
                         reflection.reflection = summary_json["user"]
                         reflection.updated_at = datetime.utcnow()
                         self.db.commit()
                         
-                        self.db.refresh(reflection)
-                        full_updated_summary = reflection.reflection
+                        # 2. FETCH from database for consistency
+                        saved_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
 
                         return UniversalResponse(
                             success=True,
@@ -173,7 +192,7 @@ class Stage4(BaseStage):
                             next_stage=100,
                             progress=ProgressInfo(current_step=4, total_step=5, workflow_completed=False),
                             data=[{
-                                "summary": full_updated_summary,
+                                "summary": saved_summary,  # FROM DATABASE!
                                 "regenerated": True,
                                 "updated_at": reflection.updated_at.isoformat() if reflection.updated_at else None
                             }]
@@ -182,6 +201,23 @@ class Stage4(BaseStage):
                     raise HTTPException(status_code=500, detail="Failed to regenerate summary")
 
             raise HTTPException(status_code=500, detail="Regeneration failed")
+        
+        raise HTTPException(status_code=400, detail="Invalid edit mode")
+
+    async def process_normal_conversation(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+        """Handle normal conversation flow - ALWAYS fetch summary from DB"""
+        reflection_id = uuid.UUID(request.reflection_id)
+        user_message = request.message.strip()
+
+        if not user_message:
+            raise HTTPException(status_code=400, detail="Message is required for conversation")
+
+        reflection = self.db.query(Reflection).filter(
+            Reflection.reflection_id == reflection_id,
+            Reflection.giver_user_id == user_id
+        ).first()
+        if not reflection:
+            raise HTTPException(status_code=404, detail="Reflection not found or access denied")
 
         history = get_buffer_memory(self.db, reflection_id, stage_no=4)
         turn_count = len([m for m in history if m["role"] == "user"])
@@ -202,7 +238,7 @@ class Stage4(BaseStage):
             user_message
         )
         
-        is_done = flag == "__DONE__" or turn_count >= 10
+        is_done = flag == "__DONE__" or turn_count >= 5  # Complete after 6 user messages
 
         # Store user message in database
         self.db.add(Message(
@@ -212,9 +248,10 @@ class Stage4(BaseStage):
             stage_no=4
         ))
 
-        summary_data = None
-        sarthi_response = ""  # Initialize as None
-
+        # Initialize response variables
+        sarthi_message = ""
+        response_data = []
+        
         # Handle conversation completion and summary generation
         if is_done and assistant_reply and assistant_reply.startswith("{"):
             try:
@@ -222,52 +259,80 @@ class Stage4(BaseStage):
                 summary_text = summary_json.get("user")
 
                 if summary_text and isinstance(summary_text, str):
-                    # Save summary to DB
+                    # 1. SAVE summary to database
                     reflection.reflection = summary_text
                     reflection.updated_at = datetime.utcnow()
                     self.db.commit()
 
-                    summary_data = {
-                        "summary": summary_text
-                    }
+                    # 2. FETCH summary from database for consistency
+                    saved_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
 
-                    # Don't set sarthi_response — keep it as empty string
+                    # Set completion message (minimal as you prefer)
+                    sarthi_message = "Perfect! Your reflection is ready."
+                    response_data = [{
+                        "summary": saved_summary,  # FROM DATABASE!
+                        "conversation_complete": True,
+                        "updated_at": reflection.updated_at.isoformat() if reflection.updated_at else None
+                    }]
                 else:
-                    # Valid JSON but no "user" field → treat entire thing as assistant message
-                    sarthi_response = assistant_reply
+                    # JSON without valid user summary - treat as normal assistant reply
+                    sarthi_message = assistant_reply
+                    is_done = False
             except json.JSONDecodeError:
-                # Not a JSON → treat as normal assistant reply
-                sarthi_response = assistant_reply
+                # Not valid JSON - treat as normal assistant reply
+                sarthi_message = assistant_reply
+                is_done = False
 
         elif assistant_reply:
-            # Normal assistant message (not summary)
+            # Normal assistant message (conversation continues)
             self.db.add(Message(
                 text=assistant_reply,
                 reflection_id=reflection_id,
-                sender=0,  # Assistant
+                sender=0,  # 0 = assistant
                 stage_no=4
             ))
-            sarthi_response = assistant_reply
+            sarthi_message = assistant_reply
         else:
-            sarthi_response = "Please continue sharing your thoughts."
+            # Fallback message
+            sarthi_message = "Please continue sharing your thoughts."
+
+        # ALWAYS check if summary exists (from any previous completion)
+        existing_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
+        if existing_summary and not is_done:  # Show existing summary if available
+            response_data = [{
+                "summary": existing_summary,  # FROM DATABASE!
+                "conversation_in_progress": True
+            }]
 
         self.db.commit()
-
-        response_data = summary_data if summary_data else {}
 
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
-            sarthi_message=sarthi_response,  # Always a string, never None
+            sarthi_message=sarthi_message,  # Always has a value
             current_stage=4,
-            next_stage=100 if summary_data else 4,
+            next_stage=100 if is_done else 4,
             progress=ProgressInfo(
                 current_step=4,
                 total_step=5,
-                workflow_completed=bool(summary_data)
+                workflow_completed=is_done
             ),
-            data=response_data  # Contains {"summary": ...} or {}
+            data=response_data  # Always a list, summary FROM DATABASE
         )
+
+    async def process(self, request: UniversalRequest, user_id: uuid.UUID) -> UniversalResponse:
+        """Main processing method - routes to appropriate handler"""
+        # Validate inputs
+        if not request.reflection_id:
+            raise HTTPException(status_code=400, detail="Reflection ID is required for Stage 4")
+
+        # Check for edit mode
+        edit_mode = next((item.get("edit_mode") for item in request.data if "edit_mode" in item), None)
+        
+        if edit_mode in ["edit", "regenerate"]:
+            return await self.process_edit_mode(request, user_id)
+        else:
+            return await self.process_normal_conversation(request, user_id)
 
     async def close(self):
         """Close async OpenAI client"""
