@@ -5,19 +5,23 @@ from app.api import invite, otp, user, reflection, reflection_history
 app = FastAPI(
     title="Sarthi API",
     description="Reflection System with Universal Endpoint",
-    version="1.0.2"
+    version="1.0.3"  # Updated version
 )
 
-# CORS Configuration - THIS IS THE ONLY CHANGE
+# CORS Configuration - Fixed for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://sarthi-frontend-six.vercel.app"
+        "https://localhost:3000",  # HTTPS local development
+        "https://127.0.0.1:3000",  # HTTPS local development
+        "https://sarthi-frontend-six.vercel.app",
+        "https://sarthi-frontend-six.vercel.app/",  # With trailing slash
+        "*"  # Allow all origins - REMOVE THIS IN PRODUCTION
     ],
     allow_credentials=True,
-    allow_methods=["*"],  # Changed from specific methods to "*"
+    allow_methods=["*"], 
     allow_headers=["*"],
 )
 
@@ -33,7 +37,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "Sarthi API",
-        "version": "1.0.1"
+        "version": "1.0.3"  # Updated to match FastAPI version
     }
 
 @app.get("/", tags=["system"])
