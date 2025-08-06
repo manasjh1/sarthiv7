@@ -12,9 +12,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://13.126.118.128:3000",  # Your frontend EC2
-        "http://localhost:3000",  # Local development
-        "https://localhost:3000",
+        "https://app.sarthi.me"      
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
