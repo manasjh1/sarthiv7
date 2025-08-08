@@ -69,7 +69,7 @@ class StageHandler:
                 self.logger.info(f"Reflection {reflection_id} stage updated to -1 (distress)")
                 
             distress_stage = StageMinus1(self.db)
-            return distress_stage.process(request, user_id)
+            return await distress_stage.process(request, user_id)
         except Exception as e:
             self.logger.error(f"Error handling distress redirect: {str(e)}")
             raise HTTPException(status_code=500, detail="Error handling distress situation")
@@ -91,7 +91,7 @@ class StageHandler:
             if current_stage == -1:
                 self.logger.info("User is in distress stage, processing through Stage -1")
                 distress_stage = StageMinus1(self.db)
-                return distress_stage.process(request, user_id)
+                return await distress_stage.process(request, user_id)
             
             # Check for edit_mode FIRST (bypasses normal flow)
             edit_mode = self._extract_edit_mode(request.data)
