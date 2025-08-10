@@ -28,8 +28,8 @@ app.include_router(reflection_history.router)
 
 @app.get("/health", tags=["system"])
 def health_check():
-    return {"status": "healthy", "service": "Sarthi API", "version": "1.0.10"}
+    return {"status": "healthy", "service": "Sarthi API", "version": "2.0.10"}
 
 @app.get("/", tags=["system"])
 def root():
-    return {"message": "Welcome to Sarthi API"}
+    return {"message": "Welcome to Sarthi API v2.0.10"}

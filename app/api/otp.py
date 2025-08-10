@@ -12,6 +12,7 @@ from .invite import verify_invite_token
 from datetime import datetime
 import logging
 
+
 from services.auth.manager import AuthManager
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -101,6 +102,13 @@ async def verify_otp_and_authenticate(
             if not result.success:
                 logging.warning(f"🔍 Existing user OTP verification failed: {result.message}")
                 return VerifyOTPResponse(success=False, message=result.message)
+            
+             # UPDATE: Check if this is the first time the user is verifying (was created as recipient)
+            if not user.is_verified:
+                user.is_verified = True
+                user.updated_at = datetime.utcnow()
+                db.commit()
+                logging.info(f"🔍 Updated is_verified to True for user {user.user_id} on first login")
                 
             # Convert UUID to string for access token - SAFE CONVERSION
             try:
@@ -114,14 +122,18 @@ async def verify_otp_and_authenticate(
                 )
                 
             access_token = create_access_token(user_id_str)
+
+            # Determine welcome message based on verification status
+            welcome_message = "Welcome back!" if user.is_verified else "Welcome! Your account has been verified."
+            
             return VerifyOTPResponse(
                 success=True,
                 access_token=access_token,
                 user_id=user_id_str,
                 is_new_user=False,
                 is_anonymous=user.is_anonymous,
-                onboarding_required=user.is_anonymous is None,
-                message="Welcome back!"
+                onboarding_required=user.is_anonymous is None and user.name is None,  # Updated logic
+                message=welcome_message
             )
 
         else:
@@ -161,10 +173,30 @@ async def verify_otp_and_authenticate(
                 normalized_contact = auth_manager.utils.normalize_contact_auto(contact)
                 
                 if "@" in normalized_contact:
-                    user = User(email=normalized_contact, name="", phone_number=None)
+                    user = User(
+                        email=normalized_contact, 
+                        name="",  # Empty name, will be set during onboarding
+                        phone_number=None,
+                        is_verified=True,  # Set to True for users who sign up themselves
+                        user_type='user',
+                        proficiency_score=0,
+                        status=1
+                        # Do NOT set user_id - let SQLAlchemy's default=uuid.uuid4 handle it
+                        # Do NOT set created_at/updated_at - let server_default=func.now() handle it
+                    )
                 else:
                     phone_number = int(normalized_contact) if normalized_contact.isdigit() else None
-                    user = User(email=None, name="", phone_number=phone_number)
+                    user = User(
+                        email=None, 
+                        name="",  # Empty name, will be set during onboarding
+                        phone_number=phone_number,
+                        is_verified=True,  # Set to True for users who sign up themselves
+                        user_type='user',
+                        proficiency_score=0,
+                        status=1
+                        # Do NOT set user_id - let SQLAlchemy's default=uuid.uuid4 handle it
+                        # Do NOT set created_at/updated_at - let server_default=func.now() handle it
+                    )
 
                 db.add(user)
                 db.commit()
