@@ -345,22 +345,29 @@ class Stage100:
         # After successful delivery, show feedback options
         return self._show_feedback_options_after_delivery(reflection_id, user_id, delivery_result)
 
-    async def _handle_standard_delivery(self, delivery_mode: int, user: User, summary: str) -> Dict[str, Any]:
+    async def _handle_standard_delivery(
+        self, 
+        delivery_mode: int, 
+        user: User, 
+        summary: str,
+        reflection: Reflection = None,  # Add these parameters!
+        reflection_id: uuid.UUID = None  # Add these parameters!
+) -> Dict[str, Any]:
         """Handle standard delivery modes with comprehensive error handling and logging"""
         delivery_status = []
         
         try:
             if delivery_mode == 0:  # Email only
-                await self._deliver_via_email(user, summary, delivery_status)
+                await self._deliver_via_email(user, summary, delivery_status,reflection, reflection_id)
                 message = "Your message has been sent via email successfully! 📧"
                 
             elif delivery_mode == 1:  # WhatsApp only
-                await self._deliver_via_whatsapp(user, summary, delivery_status)
+                await self._deliver_via_whatsapp(user, summary, delivery_status, reflection, reflection_id)
                 message = "Your message has been sent via WhatsApp successfully! 📱"
                 
             elif delivery_mode == 2:  # Both email and WhatsApp
                 sent_methods = []
-                await self._deliver_via_both(user, summary, delivery_status, sent_methods)
+                await self._deliver_via_both(user, summary, delivery_status, sent_methods, reflection, reflection_id)
                 
                 if not sent_methods:
                     raise HTTPException(
@@ -454,12 +461,12 @@ class Stage100:
 
 
     async def _deliver_via_email(
-    self, 
-    user: User,  # The SENDER user (or could be the recipient user object)
-    summary: str, 
-    delivery_status: list,
-    reflection: Reflection = None,  # EXISTING reflection
-    reflection_id: uuid.UUID = None  # EXISTING reflection_id
+        self, 
+        user: User,  # The SENDER user (or could be the recipient user object)
+        summary: str, 
+        delivery_status: list,
+        reflection: Reflection = None,  # EXISTING reflection
+        reflection_id: uuid.UUID = None  # EXISTING reflection_id
 ):
         """Deliver message via email"""
         if not user.email:
@@ -491,12 +498,27 @@ class Stage100:
         self.logger.info(f"✅ Email sent successfully to {user.email}")
         
 
-    async def _deliver_via_whatsapp(self, user: User, summary: str, delivery_status: list):
+    async def _deliver_via_whatsapp(
+        self, 
+        user: User, 
+        summary: str, 
+        delivery_status: list,
+        reflection: Reflection = None,  # Add these parameters!
+        reflection_id: uuid.UUID = None  # Add these parameters!
+):
         """Deliver message via WhatsApp"""
         if not user.phone_number:
             raise HTTPException(status_code=400, detail="User phone number not available")
         
         self.logger.info(f"Attempting WhatsApp delivery to {user.phone_number}")
+
+        # FIXED: Now create user for WhatsApp delivery too!
+        if reflection and reflection_id:
+            await self._create_or_update_recipient_user(
+                contact=str(user.phone_number), 
+                reflection=reflection,
+                reflection_id=reflection_id
+            )
         
         result = await self.whatsapp_provider.send(str(user.phone_number), summary)
         
@@ -507,13 +529,30 @@ class Stage100:
             
         delivery_status.append("whatsapp_sent")
 
-    async def _deliver_via_both(self, user: User, summary: str, delivery_status: list, sent_methods: list):
+    async def _deliver_via_both(
+        self, 
+        user: User, 
+        summary: str, 
+        delivery_status: list, 
+        sent_methods: list,
+        reflection: Reflection = None,  # Add these parameters!
+        reflection_id: uuid.UUID = None  # Add these parameters!
+):
         """Deliver message via both email and WhatsApp"""
         
         # Try email delivery
         if user.email:
             try:
                 self.logger.info(f"Attempting email delivery to {user.email} (Both mode)")
+
+                # FIXED: Create user for email
+                if reflection and reflection_id:
+                    await self._create_or_update_recipient_user(
+                        contact=user.email,
+                        reflection=reflection,
+                        reflection_id=reflection_id
+                    )
+
                 metadata = {
                     "subject": "Your Sarthi Reflection Summary",
                     "recipient_name": user.name or "User"
@@ -532,6 +571,15 @@ class Stage100:
         if user.phone_number:
             try:
                 self.logger.info(f"Attempting WhatsApp delivery to {user.phone_number} (Both mode)")
+
+                # FIXED: Create user for WhatsApp
+                if reflection and reflection_id:
+                    await self._create_or_update_recipient_user(
+                        contact=str(user.phone_number),
+                        reflection=reflection,
+                        reflection_id=reflection_id
+                    )
+
                 result = await self.whatsapp_provider.send(str(user.phone_number), summary)
                 if result.success:
                     delivery_status.append("whatsapp_sent")
@@ -547,7 +595,7 @@ class Stage100:
         reflection_id: uuid.UUID, 
         user_id: uuid.UUID, 
         recipient_email: str
-    ) -> UniversalResponse:
+) -> UniversalResponse:
         """Handle sending reflection to someone else's email (third-party delivery)"""
         
         try:
@@ -557,6 +605,13 @@ class Stage100:
 
             reflection = self._get_reflection(reflection_id, user_id)
             user = self._get_user(user_id)
+
+            # FIXED: Create user for third-party recipient!
+            await self._create_or_update_recipient_user(
+                contact=recipient_email,
+                reflection=reflection,
+                reflection_id=reflection_id
+            )
 
             # Get sender name and summary from database
             sender_name = self._get_sender_name(reflection, user)
