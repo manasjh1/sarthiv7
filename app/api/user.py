@@ -17,11 +17,10 @@ logger = logging.getLogger(__name__)
 
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = None
-    # We don't allow direct email/phone updates here - they need OTP verification
-
+    
 class RequestContactOTPRequest(BaseModel):
-    contact: str  # Email or phone number to add
-    contact_type: Optional[str] = None  # 'email' or 'phone' - auto-detect if not provided
+    contact: str  
+    contact_type: Optional[str] = None  
 
 class VerifyContactOTPRequest(BaseModel):
     contact: str
@@ -33,9 +32,6 @@ class UpdateProfileResponse(BaseModel):
     message: str
     user: Optional[dict] = None
 
-# -------------------------
-# Get current user profile
-# -------------------------
 @router.get("/me")
 async def get_current_user_profile(current_user: User = Depends(get_current_user)):
     return {
@@ -49,8 +45,6 @@ async def get_current_user_profile(current_user: User = Depends(get_current_user
         "has_phone": current_user.phone_number is not None
     }
 
-# Update user name (simple update, no OTP needed)
-# -------------------------
 @router.put("/update-name", response_model=UpdateProfileResponse)
 async def update_user_name(
     request: UpdateProfileRequest,
@@ -65,7 +59,6 @@ async def update_user_name(
                 detail="Name is required"
             )
         
-        # Validate name
         name = request.name.strip()
         if not name:
             raise HTTPException(
@@ -79,11 +72,9 @@ async def update_user_name(
                 detail="Name is too long (max 256 characters)"
             )
         
-        # Update name
         current_user.name = name
         current_user.updated_at = datetime.utcnow()
         
-        # If user was anonymous, update that too
         if current_user.is_anonymous:
             current_user.is_anonymous = False
             logger.info(f"User {current_user.user_id} is no longer anonymous after updating name")
@@ -113,9 +104,6 @@ async def update_user_name(
             detail="Failed to update name"
         )
 
-# -------------------------
-# Request OTP for adding new contact (email/phone)
-# -------------------------
 @router.post("/request-contact-otp")
 async def request_contact_otp(
     request: RequestContactOTPRequest,
@@ -126,17 +114,14 @@ async def request_contact_otp(
     try:
         contact = request.contact.strip()
         
-        # Detect contact type if not provided
         contact_type = request.contact_type
         if not contact_type:
             contact_type = auth_manager.utils.detect_channel(contact)
         
-        # Normalize contact
         normalized_contact = auth_manager.utils.normalize_contact(contact, contact_type)
         
         logger.info(f"User {current_user.user_id} requesting OTP to add {contact_type}: {normalized_contact}")
         
-        # Check if user already has this contact type
         if contact_type == "email" and current_user.email:
             if current_user.email.lower() == normalized_contact.lower():
                 return {
@@ -144,7 +129,6 @@ async def request_contact_otp(
                     "message": "This email is already linked to your account"
                 }
             else:
-                # User wants to change email
                 logger.info(f"User {current_user.user_id} wants to change email from {current_user.email} to {normalized_contact}")
         
         if contact_type == "whatsapp" and current_user.phone_number:
@@ -155,10 +139,8 @@ async def request_contact_otp(
                     "message": "This phone number is already linked to your account"
                 }
             else:
-                # User wants to change phone
                 logger.info(f"User {current_user.user_id} wants to change phone from {current_user.phone_number} to {normalized_contact}")
         
-        # Check if this contact is already used by another user
         existing_user = auth_manager.utils.find_user_by_contact(normalized_contact, db)
         if existing_user and existing_user.user_id != current_user.user_id:
             return {
@@ -166,11 +148,9 @@ async def request_contact_otp(
                 "message": f"This {contact_type} is already registered with another account"
             }
         
-        # Generate and send OTP
+        
         otp = auth_manager._generate_otp()
         
-        # Store OTP in database for this user (reuse existing OTP storage)
-        # We'll store it with the current user's ID
         success = auth_manager.storage.store_for_existing_user(current_user.user_id, otp, db)
         if not success:
             return {
@@ -178,7 +158,7 @@ async def request_contact_otp(
                 "message": "Please wait 60 seconds before requesting a new OTP"
             }
         
-        # Send OTP based on contact type
+        
         if contact_type == "email":
             template_data = {
                 "otp": otp,
@@ -191,7 +171,7 @@ async def request_contact_otp(
                 "recipient_name": current_user.name or "User"
             }
             result = await auth_manager.email_provider.send(normalized_contact, content, metadata)
-        else:  # whatsapp
+        else:  
             result = await auth_manager.whatsapp_provider.send(normalized_contact, otp)
         
         if not result.success:
@@ -203,8 +183,7 @@ async def request_contact_otp(
         return {
             "success": True,
             "message": f"OTP sent successfully to {contact}",
-            "contact_type": contact_type,
-            "masked_contact": _mask_contact(normalized_contact, contact_type)
+            "contact_type": contact_type
         }
         
     except Exception as e:
@@ -214,9 +193,7 @@ async def request_contact_otp(
             detail="Failed to send OTP"
         )
 
-# -------------------------
-# Verify OTP and add/update contact
-# -------------------------
+
 @router.post("/verify-contact-otp", response_model=UpdateProfileResponse)
 async def verify_contact_otp_and_update(
     request: VerifyContactOTPRequest,
@@ -391,22 +368,3 @@ async def set_onboarding_choice(
 
     db.commit()
     return {"message": "Onboarding information saved successfully."}
-
-# Helper function to mask contact for display
-# -------------------------
-def _mask_contact(contact: str, contact_type: str) -> str:
-    """Mask contact for privacy in responses"""
-    if contact_type == "email":
-        parts = contact.split("@")
-        if len(parts) == 2:
-            username = parts[0]
-            domain = parts[1]
-            if len(username) > 2:
-                masked = username[0] + "*" * (len(username) - 2) + username[-1]
-            else:
-                masked = username[0] + "*"
-            return f"{masked}@{domain}"
-    else:  # phone
-        if len(contact) > 4:
-            return "*" * (len(contact) - 4) + contact[-4:]
-    return contact

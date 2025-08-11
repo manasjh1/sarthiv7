@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import invite, otp, user, reflection, reflection_history
+import app.api.reflection_inbox_outbox as reflection_inbox_outbox
 
 app = FastAPI(
     title="Sarthi API",
@@ -8,11 +9,11 @@ app = FastAPI(
     version="1.0.10"
 )
 
-# Add CORS back - needed for direct frontend calls
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://app.sarthi.me"      
+        "https://app.sarthi.me"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -25,6 +26,7 @@ app.include_router(otp.router)
 app.include_router(user.router)
 app.include_router(reflection.router)
 app.include_router(reflection_history.router)
+app.include_router(reflection_inbox_outbox.router)  # New routes
 
 @app.get("/health", tags=["system"])
 def health_check():
