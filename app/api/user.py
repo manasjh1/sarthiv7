@@ -348,9 +348,6 @@ async def remove_contact(
             detail="Failed to remove contact"
         )
 
-# -------------------------
-# Save user onboarding choice
-# -------------------------
 @router.post("/onboarding")
 async def set_onboarding_choice(
     data: OnboardingChoice,

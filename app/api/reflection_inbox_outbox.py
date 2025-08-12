@@ -86,7 +86,8 @@ async def get_outbox(
             isouter=True
         ).filter(
             Reflection.giver_user_id == current_user.user_id,
-            Reflection.status == 1
+            Reflection.status == 1,
+            Reflection.stage_no == 100
         ).order_by(
             Reflection.created_at.desc()
         ).all()
