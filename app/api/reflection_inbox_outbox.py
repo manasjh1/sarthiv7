@@ -33,29 +33,24 @@ async def get_inbox(
         ).filter(
             Reflection.receiver_user_id == current_user.user_id,
             Reflection.status == 1,
+            # ADDED: Only show delivered reflections (stage 100 with delivery complete)
             Reflection.stage_no == 100,
-            Reflection.delivery_mode.isnot(None)  
+            Reflection.delivery_mode.isnot(None)  # Has been delivered
         ).order_by(
             Reflection.created_at.desc()
         ).all()
 
         reflection_list = []
         for r in reflections:
-            if r.reflection and r.reflection.strip():
-                summary_preview = (
-                    r.reflection[:50] + "..."
-                    if len(r.reflection) > 50
-                    else r.reflection
-                )
-            else:
-                summary_preview = "No summary available"
+            # Show complete reflection summary in inbox
+            full_summary = r.reflection or "No summary available"
                 
             reflection_list.append({
                 "reflection_id": str(r.reflection_id),
                 "name": r.name or "Unknown",
                 "relation": r.relation or "",
                 "category": r.category_name or "General",
-                "summary": summary_preview,
+                "summary": full_summary,  # Complete summary, not truncated
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "stage": r.stage_no
             })
@@ -94,6 +89,7 @@ async def get_outbox(
         ).filter(
             Reflection.giver_user_id == current_user.user_id,
             Reflection.status == 1,
+            # FIXED: Show completed reflections (stage 100)
             Reflection.stage_no == 100
         ).order_by(
             Reflection.created_at.desc()
@@ -115,18 +111,15 @@ async def get_outbox(
                 elif r.delivery_mode == 4:
                     delivery_status = "Sent to Third Party"
             
-            summary_preview = (
-                r.reflection[:50] + "..."
-                if r.reflection and len(r.reflection) > 50
-                else (r.reflection or "No summary available")
-            )
+            # Show complete reflection summary in outbox too
+            full_summary = r.reflection or "No summary available"
             
             reflection_list.append({
                 "reflection_id": str(r.reflection_id),
                 "name": r.name or "Unknown",
                 "relation": r.relation or "",
                 "category": r.category_name or "General",
-                "summary": summary_preview,
+                "summary": full_summary,  # Complete summary, not truncated
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "stage": r.stage_no,
                 "delivery_status": delivery_status,
