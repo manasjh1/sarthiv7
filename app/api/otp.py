@@ -1,5 +1,3 @@
-# app/api/otp.py - COMPLETE FIXED VERSION
-
 from fastapi import APIRouter, Depends, Request, HTTPException, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address

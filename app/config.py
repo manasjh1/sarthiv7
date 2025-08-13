@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     pinecone_index: str
     pinecone_namespace: str = "distress"
     openai_embed_model: str = "text-embedding-3-large"
-    pinecone_env: Optional[str] = None  # Optional, some Pinecone setups don't need this
+    pinecone_env: Optional[str] = None  
              
     # ZeptoMail setting 
     zeptomail_token: str
