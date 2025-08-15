@@ -24,6 +24,13 @@ async def get_reflection_history(
 ):
     """
     Get reflection history for the current user
+    
+    - SENDERS: See full details (summary + messages + conversation history)
+    - RECEIVERS: See ONLY the summary (no conversation history)
+    
+    Request formats:
+    1. List all reflections: {"data": {"mode": "get_reflections"}}
+    2. Get specific reflection: {"data": {"mode": "get_reflections", "reflection_id": "uuid"}}
     """
     try:
         # Extract request data
@@ -49,6 +56,8 @@ async def get_reflection_history(
                 Reflection.stage_no,
                 Reflection.giver_user_id,
                 Reflection.receiver_user_id,
+                Reflection.sender_name,
+                Reflection.is_anonymous,  # Added this field
                 CategoryDict.category_name
             ).join(
                 CategoryDict, 
@@ -80,6 +89,14 @@ async def get_reflection_history(
                 else:
                     summary_preview = "No summary available"
                 
+                # Determine display name based on anonymity choice
+                if r.is_anonymous is False and r.sender_name:
+                    display_name = r.sender_name
+                elif r.is_anonymous is False and r.name:
+                    display_name = r.name  # Fallback to reflection.name
+                else:
+                    display_name = "Anonymous"
+                
                 reflection_list.append({
                     "reflection_id": str(r.reflection_id),
                     "name": r.name or "Unknown",
@@ -89,7 +106,10 @@ async def get_reflection_history(
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                     "stage": r.stage_no,
                     "user_role": user_role,
-                    "is_sender": is_sender
+                    "is_sender": is_sender,
+                    "sender_name": r.sender_name,
+                    "is_anonymous": r.is_anonymous,
+                    "display_name": display_name  # This is what frontend should show for "from"
                 })
             
             return {
@@ -119,6 +139,8 @@ async def get_reflection_history(
                 Reflection.stage_no,
                 Reflection.giver_user_id,
                 Reflection.receiver_user_id,
+                Reflection.sender_name,
+                Reflection.is_anonymous,  # Added this field
                 CategoryDict.category_name
             ).join(
                 CategoryDict,
@@ -145,6 +167,14 @@ async def get_reflection_history(
             is_sender = (reflection.giver_user_id == current_user.user_id)
             user_role = "sent" if is_sender else "received"
             
+            # Determine display name based on anonymity choice (for both senders and receivers)
+            if reflection.is_anonymous is False and reflection.sender_name:
+                display_name = reflection.sender_name
+            elif reflection.is_anonymous is False and reflection.name:
+                display_name = reflection.name  # Fallback to reflection.name
+            else:
+                display_name = "Anonymous"
+            
             # Base response data (same for both sender and receiver)
             response_data = {
                 "reflection_id": str(reflection.reflection_id),
@@ -155,7 +185,10 @@ async def get_reflection_history(
                 "created_at": reflection.created_at.isoformat() if reflection.created_at else None,
                 "stage": reflection.stage_no,
                 "user_role": user_role,
-                "is_sender": is_sender
+                "is_sender": is_sender,
+                "sender_name": reflection.sender_name,
+                "is_anonymous": reflection.is_anonymous,
+                "display_name": display_name  # Frontend should use this for "From: ..."
             }
             
             # CONDITIONAL: Only add messages and conversation history for SENDERS
