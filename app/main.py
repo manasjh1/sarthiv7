@@ -29,10 +29,3 @@ app.include_router(reflection.router)
 app.include_router(reflection_history.router)
 app.include_router(reflection_inbox_outbox.router)
 
-@app.get("/health", tags=["system"])
-def health_check():
-    return {"status": "healthy", "service": "Sarthi API", "version": "1.0.11"}
-
-@app.get("/", tags=["system"])
-def root():
-    return {"message": "Welcome to Sarthi API v1.0.11"}
