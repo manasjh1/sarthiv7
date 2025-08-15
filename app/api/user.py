@@ -285,69 +285,6 @@ async def verify_contact_otp_and_update(
             detail="Failed to update contact"
         )
 
-# -------------------------
-# Remove contact (email or phone)
-# -------------------------
-@router.delete("/remove-contact/{contact_type}")
-async def remove_contact(
-    contact_type: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Remove email or phone from profile (requires at least one contact to remain)"""
-    try:
-        if contact_type not in ["email", "phone"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid contact type. Must be 'email' or 'phone'"
-            )
-        
-        # Check if user has both contacts
-        has_email = current_user.email is not None
-        has_phone = current_user.phone_number is not None
-        
-        # Ensure user keeps at least one contact method
-        if not (has_email and has_phone):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot remove your only contact method. Add another contact first."
-            )
-        
-        # Remove the requested contact
-        if contact_type == "email":
-            current_user.email = None
-            logger.info(f"User {current_user.user_id} removed email")
-        else:  # phone
-            current_user.phone_number = None
-            logger.info(f"User {current_user.user_id} removed phone")
-        
-        current_user.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(current_user)
-        
-        return {
-            "success": True,
-            "message": f"{contact_type.capitalize()} removed successfully",
-            "user": {
-                "user_id": str(current_user.user_id),
-                "name": current_user.name,
-                "email": current_user.email,
-                "phone": current_user.phone_number,
-                "has_email": current_user.email is not None,
-                "has_phone": current_user.phone_number is not None
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error removing contact: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to remove contact"
-        )
-
 @router.post("/onboarding")
 async def set_onboarding_choice(
     data: OnboardingChoice,

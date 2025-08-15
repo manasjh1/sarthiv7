@@ -24,6 +24,9 @@ red_list = [
     "how to die peacefully at home",
     "i'm looking for ways to not wake up",
     "it's my final night",
+    "i will kill him",
+    "i will kill you"
+    "i murder him"
 ]
 
 

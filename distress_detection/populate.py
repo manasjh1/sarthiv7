@@ -35,7 +35,7 @@ try:
     existing_indexes = [index.name for index in pc.list_indexes()]
     if index_name not in existing_indexes:
         # Determine dimension based on model
-        dimension = 3072 if "large" in model else 1536
+        dimension = 1536
         
         pc.create_index(
             name=index_name,
@@ -58,7 +58,7 @@ except Exception as e:
         
         # Create index if it doesn't exist
         if index_name not in pinecone.list_indexes():
-            dimension = 3072 if "large" in model else 1536
+            dimension = 1536
             pinecone.create_index(
                 name=index_name,
                 dimension=dimension,

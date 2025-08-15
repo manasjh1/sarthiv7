@@ -13,7 +13,6 @@ class AuthUtils:
         if "@" in contact:
             return "email"
         else:
-            # Phone number - will use WhatsApp
             return "whatsapp"
     
     def normalize_contact(self, contact: str, channel: str) -> str:

@@ -26,7 +26,7 @@ async def get_reflection_history(
     Get reflection history for the current user
     
     - SENDERS: See full details (summary + messages + conversation history)
-    - RECEIVERS: See ONLY the summary (no conversation history) + sender identity info
+    - RECEIVERS: See ONLY the summary (no conversation history)
     
     Request formats:
     1. List all reflections: {"data": {"mode": "get_reflections"}}
