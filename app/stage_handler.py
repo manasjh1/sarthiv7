@@ -1,5 +1,3 @@
-# app/stage_handler.py - FIXED - Proper Stage 4 Chat Initialization
-
 from typing import List, Optional, Dict, Any
 import uuid
 from sqlalchemy.orm import Session
@@ -10,7 +8,7 @@ from app.stages.stage_4 import Stage4
 from app.stages.stage_3 import Stage3
 from app.stages.stage_100 import Stage100  
 from app.stages.stage_minus_1 import StageMinus1
-from distress_detection import DistressDetector
+from distress_detection.detector import get_detector, DistressLevel
 import logging
 
 
@@ -23,16 +21,27 @@ class StageHandler:
     def __init__(self, db: Session):
         """Initialize Stage Handler"""
         self.db = db
-        self.distress_detector = DistressDetector()
         self.logger = logging.getLogger(__name__)
+        self.stats = {"requests": 0, "distress_checks": 0, "interventions": 0}
 
-    async def check_distress(self, message: str) -> int:
+    async def check_distress(self, message: str) -> tuple[int,Optional[str]]:
         """Check distress level asynchronously - only on user messages"""
+        self.stats["distress_checks"] += 1
         try:
-            return await self.distress_detector.check(message)
+            detector = await get_detector()
+            result = await detector.check(message)
+
+            if result.level == DistressLevel.CRITICAL:
+                self.stats["interventions"] += 1
+                self.logger.warning(f"Critical distress detected: {message}")
+                return 1, result.matched_text
+            elif result.level == DistressLevel.WARNING:
+                self.logger.info(f"Warning distress detected: {message}")
+                return 2, result.matched_text
+            return 0 , None
         except Exception as e:
             self.logger.error(f"Distress detection error: {str(e)}")
-            return 0  # Default to no distress on error
+            return 0, None
 
     def get_stage_prompt(self, stage_no: int) -> str:
         """Get stage prompt from database"""
@@ -117,18 +126,19 @@ class StageHandler:
             distress_level = 0
             
             # Only check distress for stages that involve user input about people/relationships
-            if target_stage in [2, 3, 4]: 
+            if target_stage in [2, 3, 4] and request.message.strip():
                 self.logger.debug(f"Checking distress for stage {target_stage}")
-                distress_level = await self.check_distress(request.message)
-                   
+                distress_level, matched_text = await self.check_distress(request.message)
+
                 if distress_level == 1:
                     self.logger.warning(f"Critical distress detected in stage {target_stage}")
                     return await self.handle_distress_redirect(reflection_id, request, user_id, target_stage)
-                
-                self.logger.debug(f"No distress detected (level: {distress_level})")
+                elif distress_level == 2:
+                    self.logger.warning(f"Warning distress detected in stage {target_stage}: {matched_text}")
+                self.logger.debug(f"Stage {distress_level} complete")
             else:
                 self.logger.debug(f"Stage {target_stage} does not require distress checking")
-            
+
             # Route to appropriate stage
             return await self._route_to_stage(target_stage, reflection_id, request, user_id, distress_level)
         
@@ -140,12 +150,6 @@ class StageHandler:
         except Exception as e:
             self.logger.error(f"Unexpected error in process_request: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
-        finally:
-            # Always clean up async distress detector
-            try:
-                await self.distress_detector.close()
-            except Exception as e:
-                self.logger.error(f"Error closing distress detector: {str(e)}")
 
     def _extract_edit_mode(self, data: List[Dict[str, Any]]) -> Optional[str]:
         """Extract edit mode from request data"""
