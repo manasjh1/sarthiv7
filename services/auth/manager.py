@@ -139,7 +139,7 @@ class AuthManager:
                 if channel == "email":
                     template_data = {
                         "otp": otp,
-                        "name": "New User",
+                        "name": "There",
                         "app_name": "Sarthi"
                     }
                     content = self._load_template("otp_email.html", template_data)

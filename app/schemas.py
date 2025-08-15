@@ -71,3 +71,11 @@ class UserProfileResponse(BaseModel):
 class OnboardingChoice(BaseModel):
     is_anonymous: bool
     name: Optional[str] = None
+
+class InviteGenerateResponse(BaseModel):
+    success: bool
+    message: str
+    invite_code: Optional[str] = None
+    invite_id: Optional[str] = None
+    created_at: Optional[str] = None
+    is_used: Optional[bool] = None
