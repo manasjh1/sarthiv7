@@ -102,4 +102,4 @@ alembic/versions/*.py
 
 # Temporary files
 *.tmp
-*.temp
+*.temp__pycache__/
