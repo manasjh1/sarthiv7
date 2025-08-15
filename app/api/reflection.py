@@ -9,14 +9,14 @@ import uuid
 router = APIRouter(prefix="/api", tags=["reflection"])
 
 @router.post("/reflection", response_model=UniversalResponse)
-async def process_reflection(  # NOW ASYNC
+async def process_reflection(  
     request: UniversalRequest,
     user_id: uuid.UUID = Depends(verify_token),
     db: Session = Depends(get_db)
 ):
     try:
         handler = StageHandler(db)
-        return await handler.process_request(request, user_id)  # ASYNC CALL
+        return await handler.process_request(request, user_id)  
     except HTTPException:
         raise
     except Exception:

@@ -238,32 +238,3 @@ async def verify_otp_and_authenticate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Verification failed. Please try again."
         )
-
-# Debug endpoint to check OTP memory state
-@router.get("/debug/otp-state")
-async def debug_otp_state():
-    """Debug endpoint to check OTP memory state"""
-    try:
-        auth_manager.storage.debug_memory_state()
-        return {"message": "Check logs for OTP memory state"}
-    except Exception as e:
-        return {"error": str(e)}
-
-# Debug endpoint to test contact normalization
-@router.get("/debug/normalize/{contact}")
-async def debug_normalize(contact: str):
-    """Debug contact normalization"""
-    try:
-        channel = auth_manager.utils.detect_channel(contact)
-        normalized = auth_manager.utils.normalize_contact(contact, channel)
-        auto_normalized = auth_manager.utils.normalize_contact_auto(contact)
-        
-        return {
-            "original": contact,
-            "channel": channel,
-            "normalized": normalized,
-            "auto_normalized": auto_normalized,
-            "match": normalized == auto_normalized
-        }
-    except Exception as e:
-        return {"error": str(e)}
