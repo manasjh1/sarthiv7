@@ -375,7 +375,7 @@ class Stage100:
         reflection_id: uuid.UUID,
         user_id: uuid.UUID
     ) -> UniversalResponse:
-        """Handle delivery mode selection and execute delivery - UPDATED with recipient validation"""
+        """Handle delivery mode selection and execute delivery - ALWAYS uses recipient delivery"""
         
         # Validate delivery mode
         if delivery_mode not in [0, 1, 2, 3]:
@@ -384,26 +384,40 @@ class Stage100:
         # Extract choices to get recipient contact info
         choices = self._extract_user_choices(getattr(self, '_current_request_data', []))
         
-        # Validate recipient contact based on delivery mode
+        # Handle private mode (no recipient needed)
+        if delivery_mode == 3:
+            reflection.delivery_mode = delivery_mode
+            self.db.commit()
+            
+            self.logger.info(f"Private mode selected for reflection {reflection_id}")
+            
+            delivery_result = {
+                "status": ["private"],
+                "message": "Your message has been saved privately. No delivery was made. 🔒"
+            }
+            
+            return self._show_feedback_options_after_delivery(reflection_id, user_id, delivery_result)
+        
+        # For delivery modes 0, 1, 2 - validate recipient contact
         if delivery_mode == 0:  # Email only
             if not choices.get('recipient_email'):
                 return self._ask_for_recipient_contact(reflection_id, user_id, delivery_mode, "email")
-            recipient_email = str(choices['recipient_email']).strip()  # Convert to string first
+            recipient_email = str(choices['recipient_email']).strip()
             if not self._is_valid_email(recipient_email):
                 raise HTTPException(status_code=400, detail="Invalid recipient email format")
         
         elif delivery_mode == 1:  # WhatsApp only
             if not choices.get('recipient_phone'):
                 return self._ask_for_recipient_contact(reflection_id, user_id, delivery_mode, "phone")
-            recipient_phone = str(choices['recipient_phone']).strip()  # Convert to string first
+            recipient_phone = str(choices['recipient_phone']).strip()
             if not self.whatsapp_provider.validate_recipient(recipient_phone):
                 raise HTTPException(status_code=400, detail="Invalid recipient phone number format")
         
         elif delivery_mode == 2:  # Both
             if not choices.get('recipient_email') or not choices.get('recipient_phone'):
                 return self._ask_for_recipient_contact(reflection_id, user_id, delivery_mode, "both")
-            recipient_email = str(choices['recipient_email']).strip()  # Convert to string first
-            recipient_phone = str(choices['recipient_phone']).strip()  # Convert to string first
+            recipient_email = str(choices['recipient_email']).strip()
+            recipient_phone = str(choices['recipient_phone']).strip()
             if not self._is_valid_email(recipient_email):
                 raise HTTPException(status_code=400, detail="Invalid recipient email format")
             if not self.whatsapp_provider.validate_recipient(recipient_phone):
@@ -418,16 +432,10 @@ class Stage100:
         
         self.logger.info(f"Delivery mode {delivery_mode} selected for reflection {reflection_id}")
 
-        # Use recipient-aware delivery if recipient contact provided, otherwise use old method
-        if delivery_mode != 3 and (choices.get('recipient_email') or choices.get('recipient_phone')):
-            delivery_result = await self._handle_delivery_with_recipient(
-                delivery_mode, user, current_summary, reflection, reflection_id, choices
-            )
-        else:
-            # Fallback to your existing delivery method for private mode or if no recipient specified
-            delivery_result = await self._handle_standard_delivery(
-                delivery_mode, user, current_summary, reflection, reflection_id
-            )
+        # ALWAYS use recipient delivery for modes 0, 1, 2
+        delivery_result = await self._handle_delivery_with_recipient(
+            delivery_mode, user, current_summary, reflection, reflection_id, choices
+        )
         
         # After successful delivery, show feedback options
         return self._show_feedback_options_after_delivery(reflection_id, user_id, delivery_result)
@@ -677,57 +685,6 @@ class Stage100:
             except Exception as e:
                 self.logger.warning(f"WhatsApp reflection exception in Both mode: {str(e)}")
 
-    async def _handle_standard_delivery(
-        self, 
-        delivery_mode: int, 
-        user: User, 
-        summary: str,
-        reflection: Reflection = None,  # Add these parameters!
-        reflection_id: uuid.UUID = None  # Add these parameters!
-) -> Dict[str, Any]:
-        """Handle standard delivery modes with comprehensive error handling and logging"""
-        delivery_status = []
-        
-        try:
-            if delivery_mode == 0:  # Email only
-                await self._deliver_via_email(user, summary, delivery_status,reflection, reflection_id)
-                message = "Your message has been sent via email successfully! 📧"
-                
-            elif delivery_mode == 1:  # WhatsApp only
-                await self._deliver_via_whatsapp(user, summary, delivery_status, reflection, reflection_id)
-                message = "Your message has been sent via WhatsApp successfully! 📱"
-                
-            elif delivery_mode == 2:  # Both email and WhatsApp
-                sent_methods = []
-                await self._deliver_via_both(user, summary, delivery_status, sent_methods, reflection, reflection_id)
-                
-                if not sent_methods:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail="Neither email nor phone number available, or both delivery methods failed"
-                    )
-                
-                message = f"Your message has been sent via {' and '.join(sent_methods)} successfully! 📧📱"
-                
-            elif delivery_mode == 3:  # Private
-                delivery_status.append("private")
-                message = "Your message has been saved privately. No delivery was made. 🔒"
-                self.logger.info("Private mode selected - no actual delivery")
-            
-            self.logger.info(f"Delivery completed - Status: {delivery_status}, Message: {message}")
-            
-            return {
-                "status": delivery_status,
-                "message": message
-            }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Delivery failed with exception: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Message delivery failed: {str(e)}")
-        
-
     async def _create_or_update_recipient_user(
         self, 
         contact: str,
@@ -791,136 +748,6 @@ class Stage100:
             self.logger.error(f"Error creating/updating recipient user for {contact}: {str(e)}")
             self.db.rollback()
 
-
-    async def _deliver_via_email(
-        self, 
-        user: User,  # The SENDER user (or could be the recipient user object)
-        summary: str, 
-        delivery_status: list,
-        reflection: Reflection = None,  # EXISTING reflection
-        reflection_id: uuid.UUID = None  # EXISTING reflection_id
-):
-        """Deliver message via email"""
-        if not user.email:
-            raise HTTPException(status_code=400, detail="User email not available")
-        
-        self.logger.info(f"Attempting email delivery to {user.email}")
-
-        # Create or update RECIPIENT USER (not reflection!)
-        if reflection and reflection_id:
-            await self._create_or_update_recipient_user(
-                contact=user.email, 
-                reflection=reflection,  # Pass EXISTING reflection
-                reflection_id=reflection_id  # Pass EXISTING reflection_id for logging
-            )
-        
-        metadata = {
-            "subject": "Your Sarthi Reflection Summary",
-            "recipient_name": user.name or "User"
-        }
-        
-        result = await self.email_provider.send(user.email, summary, metadata)
-        
-        self.logger.info(f"Email result - Success: {result.success}, Error: {result.error if not result.success else 'None'}")
-        
-        if not result.success:
-            raise HTTPException(status_code=500, detail=f"Email sending failed: {result.error}")
-            
-        delivery_status.append("email_sent")
-        self.logger.info(f"✅ Email sent successfully to {user.email}")
-        
-
-    async def _deliver_via_whatsapp(
-        self, 
-        user: User, 
-        summary: str, 
-        delivery_status: list,
-        reflection: Reflection = None,  # Add these parameters!
-        reflection_id: uuid.UUID = None  # Add these parameters!
-):
-        """Deliver message via WhatsApp"""
-        if not user.phone_number:
-            raise HTTPException(status_code=400, detail="User phone number not available")
-        
-        self.logger.info(f"Attempting WhatsApp delivery to {user.phone_number}")
-
-        # FIXED: Now create user for WhatsApp delivery too!
-        if reflection and reflection_id:
-            await self._create_or_update_recipient_user(
-                contact=str(user.phone_number), 
-                reflection=reflection,
-                reflection_id=reflection_id
-            )
-        
-        result = await self.whatsapp_provider.send(str(user.phone_number), summary)
-        
-        self.logger.info(f"WhatsApp result - Success: {result.success}, Error: {result.error if not result.success else 'None'}")
-        
-        if not result.success:
-            raise HTTPException(status_code=500, detail=f"WhatsApp sending failed: {result.error}")
-            
-        delivery_status.append("whatsapp_sent")
-
-    async def _deliver_via_both(
-        self, 
-        user: User, 
-        summary: str, 
-        delivery_status: list, 
-        sent_methods: list,
-        reflection: Reflection = None,  # Add these parameters!
-        reflection_id: uuid.UUID = None  # Add these parameters!
-):
-        """Deliver message via both email and WhatsApp"""
-        
-        # Try email delivery
-        if user.email:
-            try:
-                self.logger.info(f"Attempting email delivery to {user.email} (Both mode)")
-
-                # FIXED: Create user for email
-                if reflection and reflection_id:
-                    await self._create_or_update_recipient_user(
-                        contact=user.email,
-                        reflection=reflection,
-                        reflection_id=reflection_id
-                    )
-
-                metadata = {
-                    "subject": "Your Sarthi Reflection Summary",
-                    "recipient_name": user.name or "User"
-                }
-                result = await self.email_provider.send(user.email, summary, metadata)
-                if result.success:
-                    delivery_status.append("email_sent")
-                    sent_methods.append("email")
-                    self.logger.info("Email sent successfully in Both mode")
-                else:
-                    self.logger.warning(f"Email failed in Both mode: {result.error}")
-            except Exception as e:
-                self.logger.warning(f"Email exception in Both mode: {str(e)}")
-
-        # Try WhatsApp delivery
-        if user.phone_number:
-            try:
-                self.logger.info(f"Attempting WhatsApp delivery to {user.phone_number} (Both mode)")
-
-                # FIXED: Create user for WhatsApp
-                if reflection and reflection_id:
-                    await self._create_or_update_recipient_user(
-                        contact=str(user.phone_number),
-                        reflection=reflection,
-                        reflection_id=reflection_id
-                    )
-
-                result = await self.whatsapp_provider.send(str(user.phone_number), summary)
-                if result.success:
-                    delivery_status.append("whatsapp_sent")
-                    sent_methods.append("WhatsApp")
-                    self.logger.info("WhatsApp sent successfully in Both mode")
-                else:
-                    self.logger.warning(f"WhatsApp failed in Both mode: {result.error}")
-            except Exception as e:
-                self.logger.warning(f"WhatsApp exception in Both mode: {str(e)}")
 
     async def _handle_third_party_email_delivery(
         self, 
