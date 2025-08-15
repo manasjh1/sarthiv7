@@ -80,7 +80,7 @@ class WhatsAppProvider(MessageProvider):
             }
             
             # DEBUG: Print request details
-            print(f"\n🔍 DEBUG INFO:")
+            print(f"\n🔍 OTP DEBUG INFO:")
             print(f"📍 URL: {url}")
             print(f"📱 To: {normalized_phone}")
             print(f"🏷️ Template: {self.template_name}")
@@ -95,7 +95,7 @@ class WhatsAppProvider(MessageProvider):
                     response_text = await response.text()
                     
                     # DEBUG: Print full response
-                    print(f"\n📊 RESPONSE DEBUG:")
+                    print(f"\n📊 OTP RESPONSE DEBUG:")
                     print(f"Status Code: {response.status}")
                     print(f"Headers: {dict(response.headers)}")
                     print(f"Raw Response: {response_text}")
@@ -117,13 +117,13 @@ class WhatsAppProvider(MessageProvider):
                             message_id = "no_messages_array"
                             message_status = "no_messages_array"
                         
-                        print(f"\n✅ SUCCESS DETAILS:")
+                        print(f"\n✅ OTP SUCCESS DETAILS:")
                         print(f"Message ID: {message_id}")
                         print(f"Status: {message_status}")
                         
                         return SendResult(success=True, message_id=message_id)
                     else:
-                        print(f"\n❌ API ERROR:")
+                        print(f"\n❌ OTP API ERROR:")
                         print(f"Status: {response.status}")
                         print(f"Response: {response_text}")
                         
@@ -137,13 +137,129 @@ class WhatsAppProvider(MessageProvider):
                         return SendResult(success=False, error=error_msg)
                         
         except asyncio.TimeoutError:
-            print(f"❌ Timeout error")
+            print(f"❌ OTP Timeout error")
             return SendResult(success=False, error="Request timeout")
         except aiohttp.ClientError as e:
-            print(f"❌ HTTP client error: {str(e)}")
+            print(f"❌ OTP HTTP client error: {str(e)}")
             return SendResult(success=False, error=f"HTTP client error: {str(e)}")
         except Exception as e:
-            print(f"❌ Unexpected error: {str(e)}")
+            print(f"❌ OTP Unexpected error: {str(e)}")
+            return SendResult(success=False, error=str(e))
+
+    async def send_reflection_summary(self, recipient: str, sender_name: str, reflection_link: str) -> SendResult:
+        """Send reflection summary using the 'delivered' template"""
+        try:
+            if not self.access_token or not self.phone_number_id:
+                return SendResult(success=False, error="WhatsApp service not configured")
+            
+            # Normalize phone number
+            normalized_phone = self._normalize_phone_number(recipient)
+            if not normalized_phone:
+                return SendResult(success=False, error="Invalid phone number format")
+            
+            # API endpoint
+            url = f"{self.api_url}/{self.phone_number_id}/messages"
+            
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Payload for 'delivered' template with 2 parameters
+            payload = {
+                "to": normalized_phone,
+                "recipient_type": "individual",
+                "type": "template",
+                "template": {
+                    "language": {
+                        "policy": "deterministic",
+                        "code": "en"
+                    },
+                    "name": "delivered",  # Your template name for reflection delivery
+                    "components": [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {
+                                    "type": "text",
+                                    "text": sender_name  # First variable: sender name
+                                },
+                                {
+                                    "type": "text", 
+                                    "text": reflection_link  # Second variable: link
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            
+            # DEBUG: Print request details
+            print(f"\n🔍 REFLECTION DELIVERY DEBUG:")
+            print(f"📍 URL: {url}")
+            print(f"📱 To: {normalized_phone}")
+            print(f"👤 Sender: {sender_name}")
+            print(f"🔗 Link: {reflection_link}")
+            print(f"🏷️ Template: delivered")
+            print(f"📦 Payload: {json.dumps(payload, indent=2)}")
+            
+            # Send async request
+            timeout = aiohttp.ClientTimeout(total=30)
+            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    response_text = await response.text()
+                    
+                    # DEBUG: Print response
+                    print(f"\n📊 REFLECTION DELIVERY RESPONSE:")
+                    print(f"Status Code: {response.status}")
+                    print(f"Headers: {dict(response.headers)}")
+                    print(f"Raw Response: {response_text}")
+                    
+                    try:
+                        response_data = json.loads(response_text)
+                        print(f"Parsed JSON: {json.dumps(response_data, indent=2)}")
+                    except json.JSONDecodeError:
+                        print("❌ Response is not valid JSON")
+                        return SendResult(success=False, error=f"Invalid JSON response: {response_text}")
+                    
+                    if response.status == 200:
+                        # Extract message info
+                        messages = response_data.get("messages", [])
+                        if messages and len(messages) > 0:
+                            message_id = messages[0].get("id", "no_id_found")
+                            message_status = messages[0].get("message_status", "no_status_found")
+                        else:
+                            message_id = "no_messages_array"
+                            message_status = "no_messages_array"
+                        
+                        print(f"\n✅ REFLECTION DELIVERY SUCCESS:")
+                        print(f"Message ID: {message_id}")
+                        print(f"Status: {message_status}")
+                        
+                        return SendResult(success=True, message_id=message_id)
+                    else:
+                        print(f"\n❌ REFLECTION DELIVERY ERROR:")
+                        print(f"Status: {response.status}")
+                        print(f"Response: {response_text}")
+                        
+                        # Extract error details
+                        if 'error' in response_data:
+                            error_info = response_data['error']
+                            error_msg = f"API Error {error_info.get('code', 'unknown')}: {error_info.get('message', 'unknown error')}"
+                        else:
+                            error_msg = f"HTTP {response.status}: {response_text}"
+                        
+                        return SendResult(success=False, error=error_msg)
+                        
+        except asyncio.TimeoutError:
+            print(f"❌ Reflection delivery timeout")
+            return SendResult(success=False, error="Request timeout")
+        except aiohttp.ClientError as e:
+            print(f"❌ Reflection delivery HTTP error: {str(e)}")
+            return SendResult(success=False, error=f"HTTP client error: {str(e)}")
+        except Exception as e:
+            print(f"❌ Reflection delivery unexpected error: {str(e)}")
             return SendResult(success=False, error=str(e))
     
     def validate_recipient(self, recipient: str) -> bool:

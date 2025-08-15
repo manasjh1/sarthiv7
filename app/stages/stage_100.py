@@ -15,6 +15,7 @@ class Stage100:
     """
     Stage 100: Identity Reveal, Delivery Mode Selection, Message Delivery, and Feedback Collection
     FIXED: Always fetch summary from database for consistency
+    UPDATED: Added recipient delivery support
     """
 
     def __init__(self, db):
@@ -42,6 +43,9 @@ class Stage100:
     async def handle(self, request: UniversalRequest, user_id: str) -> UniversalResponse:
         """Main Stage 100 handler - ALWAYS fetch summary from database"""
         try:
+            # Store request data for access in other methods
+            self._current_request_data = request.data
+            
             # Input validation and conversion
             reflection_id = self._validate_and_convert_reflection_id(request.reflection_id)
             user_uuid = self._validate_and_convert_user_id(user_id)
@@ -187,6 +191,12 @@ class Stage100:
                     choices['provided_name'] = item.get("name")
                 if "delivery_mode" in item:
                     choices['delivery_mode'] = item.get("delivery_mode")
+                
+                # NEW: Extract recipient contact information
+                if "recipient_email" in item:
+                    choices['recipient_email'] = item.get("recipient_email")
+                if "recipient_phone" in item:
+                    choices['recipient_phone'] = item.get("recipient_phone")
         
         return choices
 
@@ -280,24 +290,70 @@ class Stage100:
         return {'decided': True, 'needs_input': False}
 
     def _show_delivery_options(self, reflection_id: uuid.UUID, user_id: uuid.UUID) -> UniversalResponse:
-        """Show delivery mode options to user - fetch summary from DB"""
+        """Show delivery mode options to user - fetch summary from DB - UPDATED with recipient input fields"""
         current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
         reflection = self._get_reflection(reflection_id, user_id)
         
         return UniversalResponse(
             success=True,
             reflection_id=str(reflection_id),
-            sarthi_message="Perfect! How would you like to deliver your message?",
+            sarthi_message="Perfect! How would you like to deliver your message? Please provide the recipient's contact details.",
             current_stage=100,
             next_stage=100,
             progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
             data=[{
                 "summary": current_summary,  # FROM DATABASE!
                 "delivery_options": [
-                    {"mode": 0, "name": "Email", "description": "Send via email"},
-                    {"mode": 1, "name": "WhatsApp", "description": "Send via WhatsApp"},
-                    {"mode": 2, "name": "Both", "description": "Send via both email and WhatsApp"},
-                    {"mode": 3, "name": "Private", "description": "Keep it private (no delivery)"}
+                    {
+                        "mode": 0, 
+                        "name": "Email", 
+                        "description": "Send via email",
+                        "input_required": {
+                            "recipient_email": {
+                                "type": "email",
+                                "placeholder": "Enter recipient's email address",
+                                "label": "Recipient's Email",
+                                "required": True
+                            }
+                        }
+                    },
+                    {
+                        "mode": 1, 
+                        "name": "WhatsApp", 
+                        "description": "Send via WhatsApp",
+                        "input_required": {
+                            "recipient_phone": {
+                                "type": "tel",
+                                "placeholder": "Enter recipient's phone number (e.g., +1234567890)",
+                                "label": "Recipient's Phone Number",
+                                "required": True
+                            }
+                        }
+                    },
+                    {
+                        "mode": 2, 
+                        "name": "Both", 
+                        "description": "Send via both email and WhatsApp",
+                        "input_required": {
+                            "recipient_email": {
+                                "type": "email",
+                                "placeholder": "Enter recipient's email address",
+                                "label": "Recipient's Email",
+                                "required": True
+                            },
+                            "recipient_phone": {
+                                "type": "tel",
+                                "placeholder": "Enter recipient's phone number (e.g., +1234567890)",
+                                "label": "Recipient's Phone Number",
+                                "required": True
+                            }
+                        }
+                    },
+                    {
+                        "mode": 3, 
+                        "name": "Private", 
+                        "description": "Keep it private (no delivery)"
+                    }
                 ],
                 "third_party_option": {
                     "description": "Or send to someone else's email",
@@ -306,7 +362,8 @@ class Stage100:
                 "identity_status": {
                     "is_anonymous": reflection.is_anonymous,
                     "sender_name": reflection.sender_name
-                }
+                },
+                "note": "Make sure you have permission to send messages to the recipient."
             }]
         )
 
@@ -318,11 +375,39 @@ class Stage100:
         reflection_id: uuid.UUID,
         user_id: uuid.UUID
     ) -> UniversalResponse:
-        """Handle delivery mode selection and execute delivery"""
+        """Handle delivery mode selection and execute delivery - UPDATED with recipient validation"""
         
         # Validate delivery mode
         if delivery_mode not in [0, 1, 2, 3]:
             raise HTTPException(status_code=400, detail="Invalid delivery mode")
+
+        # Extract choices to get recipient contact info
+        choices = self._extract_user_choices(getattr(self, '_current_request_data', []))
+        
+        # Validate recipient contact based on delivery mode
+        if delivery_mode == 0:  # Email only
+            if not choices.get('recipient_email'):
+                return self._ask_for_recipient_contact(reflection_id, user_id, delivery_mode, "email")
+            recipient_email = str(choices['recipient_email']).strip()  # Convert to string first
+            if not self._is_valid_email(recipient_email):
+                raise HTTPException(status_code=400, detail="Invalid recipient email format")
+        
+        elif delivery_mode == 1:  # WhatsApp only
+            if not choices.get('recipient_phone'):
+                return self._ask_for_recipient_contact(reflection_id, user_id, delivery_mode, "phone")
+            recipient_phone = str(choices['recipient_phone']).strip()  # Convert to string first
+            if not self.whatsapp_provider.validate_recipient(recipient_phone):
+                raise HTTPException(status_code=400, detail="Invalid recipient phone number format")
+        
+        elif delivery_mode == 2:  # Both
+            if not choices.get('recipient_email') or not choices.get('recipient_phone'):
+                return self._ask_for_recipient_contact(reflection_id, user_id, delivery_mode, "both")
+            recipient_email = str(choices['recipient_email']).strip()  # Convert to string first
+            recipient_phone = str(choices['recipient_phone']).strip()  # Convert to string first
+            if not self._is_valid_email(recipient_email):
+                raise HTTPException(status_code=400, detail="Invalid recipient email format")
+            if not self.whatsapp_provider.validate_recipient(recipient_phone):
+                raise HTTPException(status_code=400, detail="Invalid recipient phone number format")
 
         # Update reflection with delivery mode
         reflection.delivery_mode = delivery_mode
@@ -333,17 +418,264 @@ class Stage100:
         
         self.logger.info(f"Delivery mode {delivery_mode} selected for reflection {reflection_id}")
 
-        # Handle delivery - this will create RECIPIENT user if needed
-        delivery_result = await self._handle_standard_delivery(
-            delivery_mode, 
-            user,  # SENDER user
-            current_summary, 
-            reflection,  # EXISTING reflection
-            reflection_id  # EXISTING reflection_id
-        )
+        # Use recipient-aware delivery if recipient contact provided, otherwise use old method
+        if delivery_mode != 3 and (choices.get('recipient_email') or choices.get('recipient_phone')):
+            delivery_result = await self._handle_delivery_with_recipient(
+                delivery_mode, user, current_summary, reflection, reflection_id, choices
+            )
+        else:
+            # Fallback to your existing delivery method for private mode or if no recipient specified
+            delivery_result = await self._handle_standard_delivery(
+                delivery_mode, user, current_summary, reflection, reflection_id
+            )
         
         # After successful delivery, show feedback options
         return self._show_feedback_options_after_delivery(reflection_id, user_id, delivery_result)
+
+    def _ask_for_recipient_contact(self, reflection_id: uuid.UUID, user_id: uuid.UUID, delivery_mode: int, contact_type: str) -> UniversalResponse:
+        """Ask user to provide recipient contact information"""
+        current_summary = self.get_reflection_summary_from_db(reflection_id, user_id)
+        
+        if contact_type == "email":
+            message = "Please provide the recipient's email address to deliver your reflection."
+            input_fields = {
+                "recipient_email": {
+                    "type": "email",
+                    "placeholder": "Enter recipient's email address",
+                    "label": "Recipient's Email",
+                    "required": True
+                }
+            }
+        elif contact_type == "phone":
+            message = "Please provide the recipient's phone number to deliver your reflection via WhatsApp."
+            input_fields = {
+                "recipient_phone": {
+                    "type": "tel",
+                    "placeholder": "Enter recipient's phone number (e.g., +1234567890)",
+                    "label": "Recipient's Phone Number",
+                    "required": True
+                }
+            }
+        elif contact_type == "both":
+            message = "Please provide both the recipient's email address and phone number for delivery."
+            input_fields = {
+                "recipient_email": {
+                    "type": "email",
+                    "placeholder": "Enter recipient's email address",
+                    "label": "Recipient's Email",
+                    "required": True
+                },
+                "recipient_phone": {
+                    "type": "tel",
+                    "placeholder": "Enter recipient's phone number (e.g., +1234567890)",
+                    "label": "Recipient's Phone Number",
+                    "required": True
+                }
+            }
+        
+        return UniversalResponse(
+            success=True,
+            reflection_id=str(reflection_id),
+            sarthi_message=message,
+            current_stage=100,
+            next_stage=100,
+            progress=ProgressInfo(current_step=5, total_step=6, workflow_completed=False),
+            data=[{
+                "summary": current_summary,
+                "delivery_mode_selected": delivery_mode,
+                "input_fields": input_fields,
+                "instruction": "Please provide the recipient's contact information to proceed with delivery."
+            }]
+        )
+
+    async def _handle_delivery_with_recipient(
+        self, 
+        delivery_mode: int, 
+        sender_user: User, 
+        summary: str,
+        reflection: Reflection = None,
+        reflection_id: uuid.UUID = None,
+        choices: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """Handle delivery with recipient contact info"""
+        delivery_status = []
+        
+        try:
+            if delivery_mode == 0:  # Email only
+                recipient_email = choices.get('recipient_email')
+                await self._deliver_to_recipient_email(
+                    sender_user, summary, delivery_status, reflection, reflection_id, recipient_email
+                )
+                message = f"Your message has been sent via email to {recipient_email} successfully! 📧"
+                
+            elif delivery_mode == 1:  # WhatsApp only
+                recipient_phone = choices.get('recipient_phone')
+                await self._deliver_to_recipient_whatsapp(
+                    sender_user, summary, delivery_status, reflection, reflection_id, recipient_phone
+                )
+                message = f"Your message has been sent via WhatsApp to {recipient_phone} successfully! 📱"
+                
+            elif delivery_mode == 2:  # Both email and WhatsApp
+                recipient_email = choices.get('recipient_email')
+                recipient_phone = choices.get('recipient_phone')
+                sent_methods = []
+                
+                await self._deliver_to_recipient_both(
+                    sender_user, summary, delivery_status, sent_methods, 
+                    reflection, reflection_id, recipient_email, recipient_phone
+                )
+                
+                if not sent_methods:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Both delivery methods failed"
+                    )
+                
+                message = f"Your message has been sent via {' and '.join(sent_methods)} successfully! 📧📱"
+            
+            self.logger.info(f"Recipient delivery completed - Status: {delivery_status}, Message: {message}")
+            
+            return {
+                "status": delivery_status,
+                "message": message
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Recipient delivery failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Message delivery failed: {str(e)}")
+
+    async def _deliver_to_recipient_email(
+        self, 
+        sender_user: User,
+        summary: str, 
+        delivery_status: list,
+        reflection: Reflection = None,
+        reflection_id: uuid.UUID = None,
+        recipient_email: str = None
+    ):
+        """Deliver message via email to specific recipient"""
+        if not recipient_email:
+            raise HTTPException(status_code=400, detail="Recipient email not provided")
+
+        # Ensure recipient_email is a string
+        recipient_email = str(recipient_email).strip()
+        
+        self.logger.info(f"Attempting email delivery to recipient: {recipient_email}")
+
+        # Create recipient user
+        if reflection and reflection_id:
+            await self._create_or_update_recipient_user(
+                contact=recipient_email, 
+                reflection=reflection,
+                reflection_id=reflection_id
+            )
+        
+        # Get sender name for email
+        sender_name = self._get_sender_name(reflection, sender_user) if reflection else "Someone"
+        
+        # Send reflection via email
+        result = await self.auth_manager.send_feedback_email(
+            sender_name=sender_name,
+            receiver_name=reflection.name or "Recipient",
+            receiver_email=recipient_email,
+            feedback_summary=summary
+        )
+        
+        if not result.success:
+            raise HTTPException(status_code=500, detail=f"Email sending failed: {result.error}")
+            
+        delivery_status.append("email_sent")
+        self.logger.info(f"✅ Email sent successfully to recipient: {recipient_email}")
+
+    async def _deliver_to_recipient_whatsapp(
+        self, 
+        sender_user: User, 
+        summary: str, 
+        delivery_status: list,
+        reflection: Reflection = None,
+        reflection_id: uuid.UUID = None,
+        recipient_phone: str = None
+    ):
+        """Deliver reflection summary via WhatsApp to specific recipient"""
+        if not recipient_phone:
+            raise HTTPException(status_code=400, detail="Recipient phone number not provided")
+
+        # Ensure recipient_phone is a string
+        recipient_phone = str(recipient_phone).strip()
+        
+        self.logger.info(f"Attempting WhatsApp reflection delivery to recipient: {recipient_phone}")
+
+        # Create recipient user
+        if reflection and reflection_id:
+            await self._create_or_update_recipient_user(
+                contact=recipient_phone, 
+                reflection=reflection,
+                reflection_id=reflection_id
+            )
+        
+        # Generate reflection link
+        reflection_link = f"https://app.sarthi.me/reflection/{reflection_id}"
+        
+        # Get sender name for WhatsApp template
+        sender_name = self._get_sender_name(reflection, sender_user) if reflection else "Someone"
+        
+        # Use the template-based delivery to RECIPIENT (your send_reflection_summary method)
+        result = await self.whatsapp_provider.send_reflection_summary(
+            recipient=recipient_phone,  # ← RECIPIENT's phone
+            sender_name=sender_name,    # ← SENDER's name
+            reflection_link=reflection_link
+        )
+        
+        if not result.success:
+            raise HTTPException(status_code=500, detail=f"WhatsApp reflection delivery failed: {result.error}")
+            
+        delivery_status.append("whatsapp_sent")
+        self.logger.info(f"✅ Reflection sent via WhatsApp to recipient: {recipient_phone}")
+
+    async def _deliver_to_recipient_both(
+        self, 
+        sender_user: User, 
+        summary: str, 
+        delivery_status: list, 
+        sent_methods: list,
+        reflection: Reflection = None,
+        reflection_id: uuid.UUID = None,
+        recipient_email: str = None,
+        recipient_phone: str = None
+    ):
+        """Deliver message via both email and WhatsApp to specific recipient"""
+
+        # Ensure both are strings
+        if recipient_email:
+            recipient_email = str(recipient_email).strip()
+        if recipient_phone:
+            recipient_phone = str(recipient_phone).strip()
+        
+        # Try email delivery
+        if recipient_email:
+            try:
+                await self._deliver_to_recipient_email(
+                    sender_user, summary, [], reflection, reflection_id, recipient_email
+                )
+                delivery_status.append("email_sent")
+                sent_methods.append("email")
+                self.logger.info("Email sent successfully to recipient in Both mode")
+            except Exception as e:
+                self.logger.warning(f"Email exception in Both mode: {str(e)}")
+
+        # Try WhatsApp delivery
+        if recipient_phone:
+            try:
+                await self._deliver_to_recipient_whatsapp(
+                    sender_user, summary, [], reflection, reflection_id, recipient_phone
+                )
+                delivery_status.append("whatsapp_sent")
+                sent_methods.append("WhatsApp")
+                self.logger.info("WhatsApp reflection sent successfully to recipient in Both mode")
+            except Exception as e:
+                self.logger.warning(f"WhatsApp reflection exception in Both mode: {str(e)}")
 
     async def _handle_standard_delivery(
         self, 
@@ -647,8 +979,17 @@ class Stage100:
     def _is_valid_email(self, email: str) -> bool:
         """Validate email format"""
         import re
+        if not email:
+            return False
+        
+        # Convert to string and strip whitespace
+        email_str = str(email).strip()
+        
+        if not email_str:
+            return False
+        
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email.strip()) is not None
+        return re.match(pattern, email_str) is not None
 
     def _get_sender_name(self, reflection: Reflection, user: User) -> str:
         """Get appropriate sender name based on anonymity settings"""
