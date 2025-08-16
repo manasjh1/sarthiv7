@@ -1,57 +1,91 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Reflection Summary</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sarthi • Reflection Delivered</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background-color: #f4f4f4; color: #333333;">
-  <div style="max-width: 620px; margin: 40px auto; background-color: #ffffff; padding: 32px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);">
-    
-    <!-- Header -->
-    <div style="text-align: center; margin-bottom: 24px;">
-      <h1 style="margin: 0; font-size: 30px; font-weight: 600; color: #2c3e50;">Sarthi</h1>
-      <p style="font-size: 16px; color: #7f8c8d; margin: 4px 0 0;">Your personal reflection companion</p>
-    </div>
-    
-    <!-- Greeting with sender name -->
-    <div style="margin-bottom: 24px;">
-      <h2 style="font-size: 22px; margin-bottom: 8px;">Hi {{receiver_name}},</h2>
-      <p style="font-size: 16px; color: #444;">
-        This reflection summary was sent to you by <strong>{{sender_name}}</strong> using Sarthi.
-      </p>
-    </div>
-    
-    <!-- Reflection Summary Preview -->
-    <div style="line-height: 1.6; font-size: 16px; color: #2c3e50; margin-bottom: 20px;">
-      <p style="margin: 0;">{{feedback_preview}}</p>
-    </div>
-    
-    <!-- Blurred/Hidden section -->
-    <div style="position: relative; max-height: 120px; overflow: hidden; line-height: 1.6; font-size: 16px; color: #2c3e50; margin-bottom: 40px;">
-      <p style="margin: 0; filter: blur(2px);">{{feedback_remaining}}</p>
-      <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 80px; background: linear-gradient(to bottom, rgba(255,255,255,0), #ffffff);"></div>
-    </div>
-    
-    <!-- CTA Button -->
-    <div style="text-align: center;">
-      <a href="https://app.sarthi.me/auth" style="display: inline-block; background-color: #0069d9; color: #ffffff; padding: 12px 28px; border-radius: 30px; text-decoration: none; font-size: 14px; font-weight: 600; box-shadow: 0 2px 6px rgba(0, 105, 217, 0.3);">
-        View Full Summary
-      </a>
-    </div>
-    
-    <!-- Thank You -->
-    <p style="font-size: 14px; color: #7f8c8d; margin-top: 32px;">
-      Thank you for using Sarthi.<br>
-      Keep reflecting, keep growing 🌱
-    </p>
-    
-    <!-- Footer -->
-    <div style="text-align: center; margin-top: 30px; border-top: 1px solid #e0e0e0; padding-top: 16px;">
-      <p style="font-size: 12px; color: #999999; margin: 0;">
-        This is an automated message. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
+<body style="margin:0;padding:0;background:#f9f9f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+<!-- Outer Wrapper -->
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f9f9f9;padding:24px 0;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+
+        <!-- Header -->
+        <tr>
+          <td style="padding:20px;text-align:center;background:#111111;">
+            <img src="https://sarthi-assets.s3.ap-south-1.amazonaws.com/Sarthi-S-Only-White.png" alt="Sarthi" width="60" style="display:block;margin:0 auto;">
+            <div style="color:#ffffff;font-size:14px;margin-top:8px;">Your Emotional Companion</div>
+          </td>
+        </tr>
+
+        <!-- Intro -->
+        <tr>
+          <td style="padding:24px;color:#333;font-size:16px;line-height:1.5;">
+            Hi {{receiver_name}}, </br>
+            You’ve received a <strong>reflection</strong> on Sarthi from {{sender_name}}.
+          </td>
+        </tr>
+
+        <!-- Message Card -->
+        <tr>
+          <td style="padding:0 24px 24px 24px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden;">
+              <tr>
+                <td style="padding:20px;color:#111;font-size:16px;line-height:1.6;">
+                  {{feedback_preview}}
+                </td>
+              </tr>
+              <tr>
+                <td style="border-top:1px solid #eaeaea;padding:12px 20px;color:#555;font-size:13px;">
+                  From: {{sender_display}}<br>
+                  Crafted with emotions • Sarthi
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- What is a reflection -->
+        <tr>
+          <td style="padding:0 24px 8px 24px;color:#555;font-size:14px;line-height:1.5;">
+            <strong>What’s a reflection?</strong><br>
+            A reflection is a message crafted with care on Sarthi - a safe space to express thoughts, gratitude, apologies, or feelings often left unsaid.
+          </td>
+        </tr>
+
+        <!-- CTA -->
+        <tr>
+          <td align="center" style="padding:24px;">
+            <a href="{{VIEW_LINK}}" target="_blank" 
+               style="background:#111;color:#fff;text-decoration:none;
+                      padding:14px 28px;border-radius:8px;font-weight:600;
+                      font-size:16px;display:inline-block;">
+              View Full Reflection
+            </a>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:16px;background:#111;color:#ccc;font-size:12px;text-align:center;line-height:1.5;">
+            © 2025 Sarthi • Built with ❤️. For the unsaid.
+            <br><br>
+            <a href="https://x.com/sarthi_me" style="color:#ccc;text-decoration:none;margin:0 8px;">X</a> |
+            <a href="https://www.instagram.com/my_sarthi" style="color:#ccc;text-decoration:none;margin:0 8px;">Instagram</a> |
+            <a href="https://www.linkedin.com/company/sarthi-me" style="color:#ccc;text-decoration:none;margin:0 8px;">LinkedIn</a>
+            <br><br>
+            You’re receiving this because someone sent you a reflection on Sarthi.  
+            <!-- <a href="{{UNSUBSCRIBE_URL}}" style="color:#ccc;text-decoration:underline;">Unsubscribe</a> -->
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+
 </body>
 </html>
