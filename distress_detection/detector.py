@@ -1,4 +1,4 @@
-# distress_detection/detector.py - Streamlined Async Version
+# distress_detection/detector.py - Production Version
 import os
 import asyncio
 import logging
@@ -13,7 +13,7 @@ load_dotenv()
 
 class DistressLevel(Enum):
     SAFE = 0
-    CRITICAL = 1  # Red - immediate intervention
+    CRITICAL = 1  # Red - immediate intervention required
     WARNING = 2   # Yellow - monitoring needed
 
 @dataclass
@@ -24,7 +24,7 @@ class DistressResult:
     error: Optional[str] = None
 
 class DistressDetector:
-    """Fast, async-first distress detection using OpenAI + Pinecone"""
+    """Production distress detection using OpenAI + Pinecone"""
     
     def __init__(self, red_threshold: float = 0.65, yellow_threshold: float = 0.55):
         self.red_threshold = red_threshold
@@ -34,29 +34,27 @@ class DistressDetector:
         # Validate environment
         self._validate_env()
         
-        # Initialize async clients
+        # Initialize async OpenAI client
         self.openai_client = AsyncOpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            timeout=5.0  # Fast timeout
+            timeout=10.0
         )
         
-        # Pinecone (sync client, used with asyncio.to_thread)
+        # Initialize Pinecone (sync client, used with asyncio.to_thread)
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = self.pc.Index(os.getenv("PINECONE_INDEX"))
         self.namespace = os.getenv("PINECONE_NAMESPACE", "distress")
         self.model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
-        
-        self.logger.debug(f"DistressDetector initialized - Red: {red_threshold}, Yellow: {yellow_threshold}")
 
     def _validate_env(self) -> None:
-        """Quick environment validation"""
+        """Validate required environment variables"""
         required = ["OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX"]
         missing = [var for var in required if not os.getenv(var)]
         if missing:
             raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
     async def _get_embedding(self, text: str) -> list[float]:
-        """Get embedding with error handling"""
+        """Get text embedding from OpenAI"""
         try:
             response = await self.openai_client.embeddings.create(
                 model=self.model,
@@ -64,11 +62,11 @@ class DistressDetector:
             )
             return response.data[0].embedding
         except Exception as e:
-            self.logger.error(f"OpenAI embedding request failed: {str(e)}")
+            self.logger.error(f"OpenAI embedding failed: {str(e)}")
             raise
 
     def _query_pinecone(self, embedding: list[float]):
-        """Sync Pinecone query with error handling"""
+        """Query Pinecone for similar distress patterns"""
         try:
             return self.index.query(
                 vector=embedding,
@@ -81,8 +79,17 @@ class DistressDetector:
             raise
 
     async def check(self, message: str) -> DistressResult:
-        """Main distress detection method - production optimized"""
+        """
+        Main distress detection method
+        
+        Args:
+            message: User message to analyze
+            
+        Returns:
+            DistressResult with level, confidence, and matched text
+        """
         try:
+            # Input validation
             if not message or not message.strip():
                 return DistressResult(DistressLevel.SAFE, 0.0, error="Empty message")
 
@@ -99,30 +106,29 @@ class DistressDetector:
             category = match.metadata.get("category", "")
             matched_text = match.metadata.get("text", "")
             
-            # Determine level based on thresholds
+            # Determine distress level based on thresholds
             if category == "red" and confidence >= self.red_threshold:
                 level = DistressLevel.CRITICAL
                 self.logger.warning(f"Critical distress detected - confidence: {confidence:.3f}")
             elif category == "yellow" and confidence >= self.yellow_threshold:
                 level = DistressLevel.WARNING
-                self.logger.warning(f"Warning distress detected - confidence: {confidence:.3f}")
+                self.logger.info(f"Warning distress detected - confidence: {confidence:.3f}")
             else:
                 level = DistressLevel.SAFE
-                self.logger.debug(f"No distress detected - confidence: {confidence:.3f}")
             
             return DistressResult(level, confidence, matched_text)
             
         except Exception as e:
             self.logger.error(f"Distress detection failed: {str(e)}")
-            # Fail-safe: return SAFE on any error to prevent blocking user flow
+            # Fail-safe: return SAFE on error to prevent blocking user flow
             return DistressResult(DistressLevel.SAFE, 0.0, error=str(e))
 
     async def close(self) -> None:
-        """Cleanup async client"""
+        """Cleanup async resources"""
         await self.openai_client.close()
 
 
-# Singleton for app use
+# Singleton pattern for production use
 _detector: Optional[DistressDetector] = None
 
 async def get_detector() -> DistressDetector:
@@ -133,7 +139,7 @@ async def get_detector() -> DistressDetector:
     return _detector
 
 async def cleanup_detector() -> None:
-    """Cleanup singleton"""
+    """Cleanup singleton detector"""
     global _detector
     if _detector:
         await _detector.close()

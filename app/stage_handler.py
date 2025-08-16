@@ -11,7 +11,6 @@ from app.stages.stage_minus_1 import StageMinus1
 from distress_detection.detector import get_detector, DistressLevel
 import logging
 
-
 class StageHandler:
     """
     Production-level Stage Handler with centralized async distress detection
@@ -27,16 +26,17 @@ class StageHandler:
     async def check_distress(self, message: str) -> tuple[int,Optional[str]]:
         """Check distress level asynchronously - only on user messages"""
         self.stats["distress_checks"] += 1
+        
         try:
             detector = await get_detector()
             result = await detector.check(message)
 
             if result.level == DistressLevel.CRITICAL:
                 self.stats["interventions"] += 1
-                self.logger.warning(f"Critical distress detected: {message}")
+                self.logger.warning(f"Critical distress detected in message (confidence: {result.confidence:.3f})")
                 return 1, result.matched_text
             elif result.level == DistressLevel.WARNING:
-                self.logger.info(f"Warning distress detected: {message}")
+                self.logger.info(f"Warning distress detected in message (confidence: {result.confidence:.3f})")
                 return 2, result.matched_text
             return 0 , None
         except Exception as e:
