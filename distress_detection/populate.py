@@ -17,7 +17,7 @@ pinecone_env = os.getenv("PINECONE_ENV")
 index_name = os.getenv("PINECONE_INDEX")
 namespace = os.getenv("PINECONE_NAMESPACE", "distress")
 openai_api_key = os.getenv("OPENAI_API_KEY")
-model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-large")
+model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 
 # Validate environment variables
 if not all([pinecone_api_key, index_name, openai_api_key]):
