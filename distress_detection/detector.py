@@ -1,4 +1,4 @@
-# distress_detection/detector.py - Production Version
+# distress_detection/detector.py - Complete Production Version
 import os
 import asyncio
 import logging
@@ -44,7 +44,11 @@ class DistressDetector:
         self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = self.pc.Index(os.getenv("PINECONE_INDEX"))
         self.namespace = os.getenv("PINECONE_NAMESPACE", "distress")
-        self.model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+        
+        # FORCE text-embedding-3-small to prevent dimension mismatch
+        self.model = "text-embedding-3-small"  # Always 1536 dimensions
+        
+        self.logger.info(f"DistressDetector initialized with model: {self.model}")
 
     def _validate_env(self) -> None:
         """Validate required environment variables"""

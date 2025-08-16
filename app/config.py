@@ -8,19 +8,18 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
     
-    # Distress Detection settings
+    # Distress Detection settings - FORCE correct embedding model
     openai_api_key: str
     pinecone_api_key: str
     pinecone_index: str
     pinecone_namespace: str = "distress"
-    openai_embed_model: str = "text-embedding-3-small"
+    openai_embed_model: str = "text-embedding-3-small"  # Force 1536 dimensions
     pinecone_env: Optional[str] = None  
              
     # ZeptoMail setting 
     zeptomail_token: str
     zeptomail_from_domain: str = "noreply@sarthi.me"
     zeptomail_from_name: str = "Sarthi"
-
 
     # WhatsApp Business API settings
     whatsapp_access_token: str = ""

@@ -28,6 +28,7 @@ class StageHandler:
         self.stats["distress_checks"] += 1
         
         try:
+            from distress_detection.detector import get_detector, DistressLevel
             detector = await get_detector()
             result = await detector.check(message)
 
@@ -38,7 +39,7 @@ class StageHandler:
             elif result.level == DistressLevel.WARNING:
                 self.logger.info(f"Warning distress detected in message (confidence: {result.confidence:.3f})")
                 return 2, result.matched_text
-            return 0 , None
+            return 0, None   
         except Exception as e:
             self.logger.error(f"Distress detection error: {str(e)}")
             return 0, None
@@ -77,6 +78,7 @@ class StageHandler:
                 self.db.commit()
                 self.logger.info(f"Reflection {reflection_id} stage updated to -1 (distress)")
                 
+            from app.stages.stage_minus_1 import StageMinus1
             distress_stage = StageMinus1(self.db)
             return await distress_stage.process(request, user_id)
         except Exception as e:
